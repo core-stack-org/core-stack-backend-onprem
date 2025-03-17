@@ -18,6 +18,9 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import path
 
+from compute.api import generate_farm_boundary
+
 urlpatterns = [
     path("admin/", admin.site.urls),
+    path("compute/farm-boundary/",generate_farm_boundary())
 ]
