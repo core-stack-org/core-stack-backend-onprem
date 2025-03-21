@@ -169,3 +169,6 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+
+compute/layers/ee-corestack-helper-a7148ade82db.json
+compute/layers/ee-corestackdev-b1cf638f9352.json

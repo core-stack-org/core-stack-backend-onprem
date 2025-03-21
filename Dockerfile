@@ -47,6 +47,7 @@ RUN conda install -y -c conda-forge cudatoolkit=11.7 cudnn=8.1.0
 RUN conda install -y -c conda-forge nccl
 RUN conda install -y -c conda-forge gdal==3.6.2
 RUN pip install -q mxnet-cu117
+RUN conda install -y -c conda-forge geetools==1.9.1
 RUN pip uninstall -y numpy
 RUN pip install -q numpy==1.23.1
 
