@@ -574,15 +574,15 @@ def export_ponds_to_gee(gdf, roi, description, state, district, block):
         geometry=polygons,
         crs=gdf.crs,
     )
-    roi = ee.FeatureCollection(
-        get_gee_asset_path(state, district, block)
-        + "filtered_mws_"
-        + valid_gee_text(district.lower())
-        + "_"
-        + valid_gee_text(block.lower())
-        + "_uid"
-    )
-    description = f"ponds_{district}_{block}"
+    #roi = ee.FeatureCollection(
+    #    get_gee_asset_path(state, district, block)
+    #    + "filtered_mws_"
+    #    + valid_gee_text(district.lower())
+    #    + "_"
+    #    + valid_gee_text(block.lower())
+    #    + "_uid"
+    #)
+    #description = f"ponds_{district}_{block}"
     export_multipolygon_to_gee(new_gdf, roi, description, state, district, block)
 
 

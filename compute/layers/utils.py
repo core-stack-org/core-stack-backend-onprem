@@ -244,9 +244,11 @@ def export_multipolygon_to_gee(gdf, roi, description, state, district, block):
 
         ee_initialize()
         final_asset = final_asset.filterBounds(roi.geometry())
-        sync_fc_to_gee(final_asset, description, GEE_ASSET_PATH + description)
+        asset_id = get_gee_asset_path(state, district, block, GEE_ASSET_PATH) + description
+        sync_fc_to_gee(final_asset, description, asset_id)
     else:
         fc = gdf_to_ee_fc(gdf)
+        fc = fc.filterBounds(roi.geometry())
         asset_id = (
             get_gee_asset_path(state, district, block, GEE_ASSET_PATH) + description
         )
