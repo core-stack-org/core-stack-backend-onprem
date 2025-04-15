@@ -165,10 +165,15 @@ cython_debug/
 #  be found at https://github.com/github/gitignore/blob/main/Global/JetBrains.gitignore
 #  and can be added to the global gitignore or merged into this file.  For a more nuclear
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
-#.idea/
+.idea/
 
 # PyPI configuration file
 .pypirc
 
+# Credentials and outputs
 compute/layers/ee-corestack-helper-a7148ade82db.json
 compute/layers/ee-corestackdev-b1cf638f9352.json
+compute/layers/data
+compute/layers/ponds_and_wells/Models
+compute/layers/scrubland_field_delineation/decode
+compute/layers/scrubland_field_delineation/india_Airbus_SPOT_model.params

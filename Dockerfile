@@ -42,6 +42,8 @@ RUN pip install -q scikit-image
 RUN pip install -q higra
 RUN pip install -q earthengine-api
 RUN pip install -q opencv-python==4.11.0.86
+#RUN conda install -c conda-forge mamba
+#RUN mamba install -c conda-forge segment-geospatial
 RUN pip install -q segment-geospatial
 RUN conda install -y -c conda-forge cudatoolkit=11.7 cudnn=8.1.0
 RUN conda install -y -c conda-forge nccl
@@ -62,4 +64,3 @@ CMD ["conda", "run", "-n", "myenv", "bash"]
 RUN conda init bash
 RUN echo "conda activate myenv" >> ~/.bashrc
 RUN source ~/.bashrc
-

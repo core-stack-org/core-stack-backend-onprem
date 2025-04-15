@@ -11,12 +11,21 @@ from skimage import measure
 import pickle
 from samgeo import tms_to_geotiff
 import math
+
 from datasets import *
 from itertools import product
 import ee
 import geopandas as gpd
 
-from utils import ee_initialize, get_gee_asset_path, valid_gee_text
+from utils import (
+    ee_initialize,
+    get_gee_asset_path,
+    valid_gee_text,
+    # gdf_to_ee_fc,
+    # sync_fc_to_gee,
+)
+
+from constants import GEE_HELPER_PATH
 
 PIL.Image.MAX_IMAGE_PIXELS = 2000000000
 
@@ -166,7 +175,7 @@ def load_model():
     n_classes = 1
     ctx_name = "gpu"
     gpu_id = 0
-    trained_model = "india_Airbus_SPOT_model.params"
+    trained_model = "scrubland_field_delineation/india_Airbus_SPOT_model.params"
     if ctx_name == "cpu":
         ctx = mx.cpu()
     elif ctx_name == "gpu":
@@ -584,6 +593,24 @@ def zip_vector(output_dir, vector_name):
     zip.close()
 
 
+def export_fc_to_gee(farm_description, farm_fc):
+    rois, descs = create_chunk(farm_fc, farm_description, 30)
+    for i in range(len(rois)):
+        chunk_asset_id = (
+            get_gee_asset_path(state, district, block, GEE_HELPER_PATH) + descs[i]
+        )
+        sync_fc_to_gee(
+            rois[i],
+            descs[i],
+            chunk_asset_id,
+        )
+    for desc in descs:
+        make_asset_public(
+            get_gee_asset_path(state, district, block, GEE_HELPER_PATH) + desc
+        )
+    merge_chunks(farm_fc, state, district, block, farm_description, 30)
+
+
 def join_boundaries(output_dir, blocks_count):
     gdf_farm = None
     gdf_plantation = None
@@ -604,6 +631,23 @@ def join_boundaries(output_dir, blocks_count):
 
     zip_vector(output_dir, "farm")
     zip_vector(output_dir, "plantation")
+
+    # farm_fc = gdf_to_ee_fc(gdf_farm)
+    # plantation_fc = gdf_to_ee_fc(gdf_plantation)
+
+    # farm_description = (
+    #     "farm_boundary_" + valid_gee_text(district) + "_" + valid_gee_text(block)
+    # )
+    # export_fc_to_gee(farm_description, farm_fc)
+
+    # plantation_desc = (
+    #     "plantation_" + valid_gee_text(district) + "_" + valid_gee_text(block)
+    # )
+    # sync_fc_to_gee(
+    #     plantation_fc.limit(1),
+    #     plantation_desc,
+    #     get_gee_asset_path(state, district, block) + plantation_desc,
+    # )
 
 
 """
@@ -669,34 +713,24 @@ def scrubland_field_delineation(state, district, block):
         + valid_gee_text(block.lower())
         + "_uid"
     )
-    # roi = ee.FeatureCollection(
-    #     "projects/df-project-iit/assets/core-stack/tamil_nadu/theni/periyakulam/filtered_mws_theni_periyakulam_uid"
-    # ).filter(ee.Filter.stringContains("uid", "2_25099"))
-    # directory = "tamil_nadu"
-    # Boiler plate code to run for a rectangle
-
-    # top_left = [19.61346189, 75.38005825]  # Replace lon1 and lat1 with actual values
-    # bottom_right = [19.44480749, 75.53687926]  # Replace lon2 and lat2 with actual values
-    # directory = "Area_paithan"
-
-    # Create a rectangle geometry using the defined corners
-    # rectangle = ee.Geometry.Rectangle([top_left[1], bottom_right[0], bottom_right[1], top_left[0]])
-    # print("Area of the Rectangle is ", rectangle.area().getInfo()/1e6)
-
     # Create a feature collection with the rectangle as a boundary
     # roi = ee.FeatureCollection([ee.Feature(rectangle)])
     print("Running get_points")
-    points = get_points(roi)
+    print("Area of the Rectangle is ", roi.geometry().area().getInfo() / 1e6)
+    points = get_points(roi)[1:5]
     output_dir = "data/" + state
+
     print("Running for " + str(len(points)) + " points...")
     for index, point in enumerate(points):
-        output_dir = output_dir + "/" + str(index)
-        download(point, output_dir)
-        run_model(output_dir)
-        get_segmentation(output_dir)
-        run_postprocessing(output_dir)
+        print()
+        op_dir = "data/" + state + "/" + str(index)
+        download(point, op_dir)
+        run_model(op_dir)
+        get_segmentation(op_dir)
+        run_postprocessing(op_dir)
+
     print("Running join_boundaries")
-    join_boundaries(output_dir, len(points))
+    # join_boundaries(output_dir, len(points))
 
 
 if __name__ == "__main__":
