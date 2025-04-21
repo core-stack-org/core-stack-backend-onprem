@@ -31,7 +31,7 @@ from utils import (
     get_gee_asset_path,
     valid_gee_text,
     ee_to_gdf,
-    export_multipolygon_to_gee,
+    export_gdf_to_gee,
 )
 import sys
 
@@ -531,14 +531,15 @@ def inference_wells(state, district, block):
         str.split(os.path.basename(csv_file), ".")[0] + ".shp",
     )
     description = f"wells_{district}_{block}"
-    export_multipolygon_to_gee(gdf_final, roi, description, state, district, block)
+    export_gdf_to_gee(gdf_final, roi, description, state, district, block)
 
 
 def export_wells_to_gee(state, district, block):
     ee_initialize()
-    path = "/home/core-stack/Code/GitClones/core-stack-backend-onprem/compute/layers/data/ponds_and_wells/output/18/gobindpur/gobindpur.shp"
+    path = "data/ponds_and_wells/output/18/gobindpur/gobindpur.geojson"
 
     gdf = gpd.read_file(path)
+
     print(gdf)
     roi = ee.FeatureCollection(
         get_gee_asset_path(state, district, block)
@@ -549,7 +550,7 @@ def export_wells_to_gee(state, district, block):
         + "_uid"
     )
     description = f"wells_{district}_{block}"
-    export_multipolygon_to_gee(gdf, roi, description, state, district, block)
+    export_gdf_to_gee(gdf, roi, description, state, district, block)
 
 
 if __name__ == "__main__":
@@ -558,5 +559,6 @@ if __name__ == "__main__":
     state = sys.argv[1]
     district = sys.argv[2]
     block = sys.argv[3]
-    inference_wells(state, district, block)
+    # inference_wells(state, district, block)
+    export_wells_to_gee(state, district, block)
     print("Processing Done")

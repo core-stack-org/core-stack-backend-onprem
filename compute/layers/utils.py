@@ -213,9 +213,10 @@ def check_task_status(task_id_list, sleep_time=60):
     return task_id_list
 
 
-def export_multipolygon_to_gee(gdf, roi, description, state, district, block):
+def export_gdf_to_gee(gdf, roi, description, state, district, block):
     df_size = gdf.shape[0]
     chunk_size = 2000
+    gdf = gdf.to_crs("EPSG:4326")
     if df_size > chunk_size:
         asset_ids = []
         assets = []
@@ -244,7 +245,9 @@ def export_multipolygon_to_gee(gdf, roi, description, state, district, block):
 
         ee_initialize()
         final_asset = final_asset.filterBounds(roi.geometry())
-        asset_id = get_gee_asset_path(state, district, block, GEE_ASSET_PATH) + description
+        asset_id = (
+            get_gee_asset_path(state, district, block, GEE_ASSET_PATH) + description
+        )
         sync_fc_to_gee(final_asset, description, asset_id)
     else:
         fc = gdf_to_ee_fc(gdf)

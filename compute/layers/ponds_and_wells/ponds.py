@@ -26,7 +26,7 @@ from utils import (
     valid_gee_text,
     ee_to_gdf,
     ee_initialize,
-    export_multipolygon_to_gee,
+    export_gdf_to_gee,
 )
 from constants import PONDS_WELLS_DATA_PATH, PONDS_WELLS_MODEL_PATH, GEE_HELPER_PATH
 
@@ -574,16 +574,16 @@ def export_ponds_to_gee(gdf, roi, description, state, district, block):
         geometry=polygons,
         crs=gdf.crs,
     )
-    #roi = ee.FeatureCollection(
+    # roi = ee.FeatureCollection(
     #    get_gee_asset_path(state, district, block)
     #    + "filtered_mws_"
     #    + valid_gee_text(district.lower())
     #    + "_"
     #    + valid_gee_text(block.lower())
     #    + "_uid"
-    #)
-    #description = f"ponds_{district}_{block}"
-    export_multipolygon_to_gee(new_gdf, roi, description, state, district, block)
+    # )
+    # description = f"ponds_{district}_{block}"
+    export_gdf_to_gee(new_gdf, roi, description, state, district, block)
 
 
 if __name__ == "__main__":
