@@ -717,7 +717,7 @@ def scrubland_field_delineation(state, district, block):
     # roi = ee.FeatureCollection([ee.Feature(rectangle)])
     print("Running get_points")
     print("Area of the Rectangle is ", roi.geometry().area().getInfo() / 1e6)
-    points = get_points(roi)[1:5]
+    points = get_points(roi)
     output_dir = "data/" + state
 
     print("Running for " + str(len(points)) + " points...")
