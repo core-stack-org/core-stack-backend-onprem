@@ -1,4 +1,4 @@
-import ee, geetools
+import ee  # , geetools
 import pandas as pd
 import geopandas as gpd
 from shapely.geometry import Polygon
@@ -25,12 +25,6 @@ def ee_initialize(project=None):
                 "ee-corestack-helper-a7148ade82db.json",
                 # "/home/core-stack/Code/GitClones/core-stack-backend-onprem/compute/layers/ee-corestack-helper-a7148ade82db.json",
             )
-        # elif project == "aman":
-        #     service_account = "amanverma@ee-amanverma.iam.gserviceaccount.com"
-        #     credentials = ee.ServiceAccountCredentials(
-        #         service_account,
-        #         "/home/core-stack/Code/GitClones/core-stack-backend-onprem/compute/layers/ee-amanverma.json",
-        #     )
         else:
             service_account = "core-stack-dev@ee-corestackdev.iam.gserviceaccount.com"
             credentials = ee.ServiceAccountCredentials(

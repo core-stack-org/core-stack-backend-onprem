@@ -14,11 +14,12 @@ import geopandas as gpd
 import shapely
 from shapely.geometry import Polygon
 
-# from PIL import Image
+from PIL import Image
 import requests
 import time
 from ultralytics import YOLO
 import skimage
+from samgeo import tms_to_geotiff
 import ee
 import sys
 from utils import (
@@ -46,14 +47,14 @@ def inference_ponds(state, district, block):
     gdf = ee_to_gdf(roi)
 
     # Zoom level
-    zoom_level = 17
+    zoom = 17
 
     # Folder paths where you want to save image tiles
     # block_name = "around_masalia"  # 'masalia_subset'
     data_download_folder = os.path.join(
         PONDS_WELLS_DATA_PATH,
         "input",
-        str(zoom_level),
+        str(zoom),
         block,
     )
     # data_download_folder
@@ -68,7 +69,7 @@ def inference_ponds(state, district, block):
     model_path = f"{PONDS_WELLS_MODEL_PATH}/Ponds_best.pt"
 
     output_folder = os.path.join(
-        f"{PONDS_WELLS_DATA_PATH}/output/{str(zoom_level)}",
+        f"{PONDS_WELLS_DATA_PATH}/output/{str(zoom)}",
         block,
     )
 
@@ -79,116 +80,290 @@ def inference_ponds(state, district, block):
 
     print(csv_file)
 
+    def lat_to_pixel_y(lat, zoom):
+        sin_lat = math.sin(math.radians(lat))
+        pixel_y = (0.5 - math.log((1 + sin_lat) / (1 - sin_lat)) / (4 * math.pi)) * (
+            2 ** (zoom + 8)
+        )
+        return int(round(pixel_y))
+
+    def lon_to_pixel_x(lon, zoom):
+        pixel_x = ((lon + 180) / 360) * (2 ** (zoom + 8))
+        return int(round(pixel_x))
+
+    def pixel_x_to_lon(pixel_x, zoom):
+        return (pixel_x / (2 ** (zoom + 8))) * 360 - 180
+
+    def pixel_y_to_lat(pixel_y, zoom):
+        n = math.pi - 2 * math.pi * pixel_y / (2 ** (zoom + 8))
+        return math.degrees(math.atan(math.sinh(n)))
+
+    def lat_lon_from_pixel(lat, lon, zoom, scale):
+        tile_width_deg = pixel_x_to_lon(256, zoom) - pixel_x_to_lon(0, zoom)
+        new_lon = lon + (tile_width_deg * scale)
+        new_pixel_y = lat_to_pixel_y(lat, zoom) + (256 * scale)
+        new_lat = pixel_y_to_lat(new_pixel_y, zoom)
+        return new_lat, new_lon
+
+    def divide_tiff_into_chunks_with_mapping(
+        chunk_size,
+        output_dir,
+        zoom,
+        top_left_lat,
+        top_left_lon,
+        mapping_file="tile_mapping.csv",
+    ):
+        """Splits a TIFF into chunks and saves a mapping of chunk names to tile names."""
+        input_image_path = os.path.join(output_dir, "field.tif")
+        image = Image.open(input_image_path)
+        width, height = image.size
+
+        top_left_x_tile = int(lon_to_pixel_x(top_left_lon, zoom) / 256)
+        top_left_y_tile = int(lat_to_pixel_y(top_left_lat, zoom) / 256)
+
+        os.makedirs(os.path.join(output_dir, "chunks"), exist_ok=True)
+
+        mappings = []
+
+        for row, i in enumerate(range(0, width, chunk_size)):
+            for col, j in enumerate(range(0, height, chunk_size)):
+                box = (i, j, i + chunk_size, j + chunk_size)
+                chunk = image.crop(box)
+
+                chunk_filename = f"chunk_{row}_{col}.tif"
+                chunk.save(os.path.join(output_dir, "chunks", chunk_filename))
+
+                x_tile = top_left_x_tile + (i // chunk_size)
+                y_tile = top_left_y_tile + (j // chunk_size)
+                tile_filename = f"tile_{zoom}_{x_tile}_{y_tile}.tif"
+
+                mappings.append([chunk_filename, tile_filename])
+
+        print("Image has been split into chunks correctly.")
+
+        # Save mapping to a CSV file
+        mapping_path = os.path.join(output_dir, mapping_file)
+        with open(mapping_path, mode="w", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow(["Chunk Name", "Tile Name"])
+            writer.writerows(mappings)
+
+        print(f"Mapping file saved: {mapping_path}")
+
+    def download(coords, output_dir, zoom, scale):
+        """Improved download function that handles both points and bboxes"""
+        # Check if input is a single point (lat, lon) or bbox [min_lat, min_lon, max_lat, max_lon]
+        if len(coords) == 2:  # It's a single point
+            lat, lon = coords
+            # Create a bbox around the point using the scale
+            new_lat, new_lon = lat_lon_from_pixel(lat, lon, zoom, scale)
+            bbox = [
+                min(lat, new_lat),
+                min(lon, new_lon),
+                max(lat, new_lat),
+                max(lon, new_lon),
+            ]
+        else:  # It's already a bbox
+            bbox = coords
+
+        # Rest of your download function remains the same
+        min_lon = min(bbox[1], bbox[3])
+        max_lon = max(bbox[1], bbox[3])
+        min_lat = min(bbox[0], bbox[2])
+        max_lat = max(bbox[0], bbox[2])
+
+        # Calculate the exact tile boundaries (fixed missing parentheses)
+        tile_x_min = math.floor(lon_to_pixel_x(min_lon, zoom) / 256)
+        tile_x_max = math.ceil(lon_to_pixel_x(max_lon, zoom) / 256)
+        tile_y_min = math.floor(
+            lat_to_pixel_y(max_lat, zoom) / 256
+        )  # Note: y tiles increase downward
+        tile_y_max = math.ceil(lat_to_pixel_y(min_lat, zoom) / 256)
+
+        # Calculate the exact geographic bounds of the tile area
+        exact_min_lon = pixel_x_to_lon(tile_x_min * 256, zoom)
+        exact_max_lon = pixel_x_to_lon(tile_x_max * 256, zoom)
+        exact_min_lat = pixel_y_to_lat(tile_y_max * 256, zoom)
+        exact_max_lat = pixel_y_to_lat(tile_y_min * 256, zoom)
+
+        corrected_bbox = [exact_min_lon, exact_min_lat, exact_max_lon, exact_max_lat]
+        print(f"Downloading tiles for exact bbox: {corrected_bbox}")
+
+        os.makedirs(os.path.join(output_dir, "chunks"), exist_ok=True)
+        tms_to_geotiff(
+            output=os.path.join(output_dir, "field.tif"),
+            bbox=corrected_bbox,
+            zoom=zoom,
+            source="Satellite",
+            overwrite=True,
+        )
+
+        # Modify the divide function to use exact coordinates
+        divide_tiff_into_chunks_with_mapping(
+            256, output_dir, zoom, exact_max_lat, exact_min_lon
+        )
+
+    def get_n_boxes(lat, lon, n, zoom, scale):
+        diagonal_lat_lon = [(lat, lon)]
+        for _ in range(n):
+            pixel_x = lon_to_pixel_x(lon, zoom) + (256 * scale)
+            new_lon = pixel_x_to_lon(pixel_x, zoom)
+            pixel_y = lat_to_pixel_y(lat, zoom) + (256 * scale)
+            new_lat = pixel_y_to_lat(pixel_y, zoom)
+            diagonal_lat_lon.append((new_lat, new_lon))
+            lat, lon = new_lat, new_lon
+        return diagonal_lat_lon
+
+    def get_points(roi, zoom, scale):
+        bounds = roi.bounds().coordinates().get(0).getInfo()
+        lons = sorted([coord[0] for coord in bounds])
+        lats = sorted([coord[1] for coord in bounds])
+        starting_point = (lats[-1], lons[0])
+        min_pixel = [lon_to_pixel_x(lons[0], zoom), lat_to_pixel_y(lats[0], zoom)]
+        max_pixel = [lon_to_pixel_x(lons[-1], zoom), lat_to_pixel_y(lats[-1], zoom)]
+        iterations = math.ceil(
+            max(abs(min_pixel[0] - max_pixel[0]), abs(min_pixel[1] - max_pixel[1]))
+            / (256 * scale)
+        )
+        points = get_n_boxes(
+            starting_point[0], starting_point[1], iterations, zoom, scale
+        )
+        intersect_list = []
+        print(f"Generated {len(points)} points")
+        for point in points:
+            bottom_right = lat_lon_from_pixel(point[0], point[1], zoom, scale)
+            rectangle = ee.Geometry.Rectangle(
+                [(point[1], point[0]), (bottom_right[1], bottom_right[0])]
+            )
+            if roi.geometry().intersects(rectangle, ee.ErrorMargin(1)).getInfo():
+                intersect_list.append(point)
+        return intersect_list
+
+    top_left = [23.531653742232088, 85.82344897858329]
+    bottom_right = [23.64099145921938, 85.99871524445243]
+    rectangle = ee.Geometry.Rectangle(
+        [top_left[1], bottom_right[0], bottom_right[1], top_left[0]]
+    )
+    roi = ee.FeatureCollection([ee.Feature(rectangle)])
+
+    print("Area of the Rectangle: ", rectangle.area().getInfo() / 1e6, "sq km")
+    points = get_points(roi, zoom, 16)
+    print(f"Running for {len(points)} points...")
+
+    for index, point in enumerate(points):
+        output_dir = os.path.join(data_download_folder, str(index))
+        download(point, output_dir, zoom, 16)
+
     # Download Data for Inference
 
     # Get Bounding boxes automatically from GeoJSON instead of manually drawing on GEE
 
-    # Get the bounding box coordinates
-    minx, miny, maxx, maxy = gdf.total_bounds
-
-    # Define bounding box points
-    topLeft = [minx, maxy]
-    topRight = [maxx, maxy]
-    bottomRight = [maxx, miny]
-    bottomLeft = [minx, miny]
-
-    # topLeft = [87.17053768466987, 24.139038123063]
-    # topRight = [87.17703935932197, 24.139038123063]
-    # bottomRight = [87.17703935932197, 24.143874618138323]
-    # bottomLeft = [87.17053768466987, 24.143874618138323]
-
-    # Helper function to convert latitude and longitude to tile numbers
-    def deg2num(lat_deg, lon_deg, zoom):
-        lat_rad = math.radians(lat_deg)
-        n = 2.0**zoom
-        xtile = int((lon_deg + 180.0) / 360.0 * n)
-        ytile = int(
-            (1.0 - math.log(math.tan(lat_rad) + (1 / math.cos(lat_rad))) / math.pi)
-            / 2.0
-            * n
-        )
-        return (xtile, ytile)
-
-    # Function to download map tiles
-    def download_map_tiles(
-        base_url,
-        image_dir,
-        zoom_level,
-        scale,
-        topLeft,
-        topRight,
-        bottomLeft,
-        bottomRight,
-    ):
-        # Ensure output folder exists
-
-        # os.makedirs(image_dir, exist_ok=True)
-
-        # Convert lat/lon to tile numbers and get bounding box
-        topleft = deg2num(topLeft[1], topLeft[0], zoom_level)
-        topright = deg2num(topRight[1], topRight[0], zoom_level)
-        bottomleft = deg2num(bottomLeft[1], bottomLeft[0], zoom_level)
-        bottomright = deg2num(bottomRight[1], bottomRight[0], zoom_level)
-
-        xmin = min(topleft[0], topright[0], bottomleft[0], bottomright[0])
-        xmax = max(topleft[0], topright[0], bottomleft[0], bottomright[0])
-        ymin = min(topleft[1], topright[1], bottomleft[1], bottomright[1])
-        ymax = max(topleft[1], topright[1], bottomleft[1], bottomright[1])
-
-        # Get start time
-        start_time = time.time()
-
-        # Iterate over each tile within the specified range
-        for x in range(xmin, xmax + 1):
-            for y in range(ymin, ymax + 1):
-                # Construct the URL for the current tile with scale=3 for 640x640
-                tile_url = f"{base_url}&x={x}&y={y}&z={zoom_level}&scale={scale}"
-                print(tile_url)
-                try:
-                    # Send HTTP GET request to fetch the tile
-                    response = requests.get(tile_url)
-
-                    # Check if request was successful (status code 200)
-                    if response.status_code == 200:
-                        # Save the tile image to a file in the output folder
-                        filename = f"tile_{zoom_level}_{x}_{y}.png"
-                        filepath = os.path.join(image_dir, filename)
-                        with open(filepath, "wb") as f:
-                            f.write(response.content)
-                        print(f"Downloaded: {filename}")
-                    else:
-                        print(
-                            f"Failed to download tile ({x}, {y}), HTTP status code: {response.status_code}"
-                        )
-
-                except Exception as e:
-                    print(f"Error downloading tile ({x}, {y}): {e}")
-
-        # Get end time
-        end_time = time.time()
-
-        # Print the total execution time
-        print(f"Total time taken: {end_time - start_time} seconds")
-
-    base_url = "https://mt1.google.com/vt/lyrs=s"
-
-    if not os.path.exists(data_download_folder):
-        os.makedirs(data_download_folder)
-        print(f"Created the folder: {data_download_folder}")
-
-        # Call the function to download map tiles
-        download_map_tiles(
-            base_url,
-            data_download_folder,
-            zoom_level,
-            scale,
-            topLeft,
-            topRight,
-            bottomLeft,
-            bottomRight,
-        )
-    else:
-        print(f"data already downloaded: {data_download_folder}")
+    # # Get the bounding box coordinates
+    # minx, miny, maxx, maxy = gdf.total_bounds
+    #
+    # # Define bounding box points
+    # topLeft = [minx, maxy]
+    # topRight = [maxx, maxy]
+    # bottomRight = [maxx, miny]
+    # bottomLeft = [minx, miny]
+    #
+    # # topLeft = [87.17053768466987, 24.139038123063]
+    # # topRight = [87.17703935932197, 24.139038123063]
+    # # bottomRight = [87.17703935932197, 24.143874618138323]
+    # # bottomLeft = [87.17053768466987, 24.143874618138323]
+    #
+    # # Helper function to convert latitude and longitude to tile numbers
+    # def deg2num(lat_deg, lon_deg, zoom):
+    #     lat_rad = math.radians(lat_deg)
+    #     n = 2.0**zoom
+    #     xtile = int((lon_deg + 180.0) / 360.0 * n)
+    #     ytile = int(
+    #         (1.0 - math.log(math.tan(lat_rad) + (1 / math.cos(lat_rad))) / math.pi)
+    #         / 2.0
+    #         * n
+    #     )
+    #     return (xtile, ytile)
+    #
+    # # Function to download map tiles
+    # def download_map_tiles(
+    #     base_url,
+    #     image_dir,
+    #     zoom_level,
+    #     scale,
+    #     topLeft,
+    #     topRight,
+    #     bottomLeft,
+    #     bottomRight,
+    # ):
+    #     # Ensure output folder exists
+    #
+    #     # os.makedirs(image_dir, exist_ok=True)
+    #
+    #     # Convert lat/lon to tile numbers and get bounding box
+    #     topleft = deg2num(topLeft[1], topLeft[0], zoom_level)
+    #     topright = deg2num(topRight[1], topRight[0], zoom_level)
+    #     bottomleft = deg2num(bottomLeft[1], bottomLeft[0], zoom_level)
+    #     bottomright = deg2num(bottomRight[1], bottomRight[0], zoom_level)
+    #
+    #     xmin = min(topleft[0], topright[0], bottomleft[0], bottomright[0])
+    #     xmax = max(topleft[0], topright[0], bottomleft[0], bottomright[0])
+    #     ymin = min(topleft[1], topright[1], bottomleft[1], bottomright[1])
+    #     ymax = max(topleft[1], topright[1], bottomleft[1], bottomright[1])
+    #
+    #     # Get start time
+    #     start_time = time.time()
+    #
+    #     # Iterate over each tile within the specified range
+    #     for x in range(xmin, xmax + 1):
+    #         for y in range(ymin, ymax + 1):
+    #             # Construct the URL for the current tile with scale=3 for 640x640
+    #             tile_url = f"{base_url}&x={x}&y={y}&z={zoom_level}&scale={scale}"
+    #             print(tile_url)
+    #             try:
+    #                 # Send HTTP GET request to fetch the tile
+    #                 response = requests.get(tile_url)
+    #
+    #                 # Check if request was successful (status code 200)
+    #                 if response.status_code == 200:
+    #                     # Save the tile image to a file in the output folder
+    #                     filename = f"tile_{zoom_level}_{x}_{y}.png"
+    #                     filepath = os.path.join(image_dir, filename)
+    #                     with open(filepath, "wb") as f:
+    #                         f.write(response.content)
+    #                     print(f"Downloaded: {filename}")
+    #                 else:
+    #                     print(
+    #                         f"Failed to download tile ({x}, {y}), HTTP status code: {response.status_code}"
+    #                     )
+    #
+    #             except Exception as e:
+    #                 print(f"Error downloading tile ({x}, {y}): {e}")
+    #
+    #     # Get end time
+    #     end_time = time.time()
+    #
+    #     # Print the total execution time
+    #     print(f"Total time taken: {end_time - start_time} seconds")
+    #
+    # base_url = "https://mt1.google.com/vt/lyrs=s"
+    #
+    # if not os.path.exists(data_download_folder):
+    #     os.makedirs(data_download_folder)
+    #     print(f"Created the folder: {data_download_folder}")
+    #
+    #     # Call the function to download map tiles
+    #     download_map_tiles(
+    #         base_url,
+    #         data_download_folder,
+    #         zoom_level,
+    #         scale,
+    #         topLeft,
+    #         topRight,
+    #         bottomLeft,
+    #         bottomRight,
+    #     )
+    # else:
+    #     print(f"data already downloaded: {data_download_folder}")
 
     # SAVE PREDICTIONS IN CSV
     conf_thresholds = {"Dry": 0.75, "Wet": 0.6}
@@ -271,7 +446,7 @@ def inference_ponds(state, district, block):
 
         return image_path, len(polygons), polygons, pred_classes, conf_scores, entropies
 
-    def extract_xtile_ytile(image_path):
+    def extract_xtile_ytile_from_tile_name(image_path):
         try:
             basename = os.path.basename(image_path)
             parts = basename.split("_")
@@ -311,40 +486,173 @@ def inference_ponds(state, district, block):
         return (center_lat, center_lon)
 
     # Predictions
-    image_files = []
-    for file in os.listdir(data_download_folder):
-        if file.endswith(".png"):
-            image_files.append(os.path.join(data_download_folder, file))
+    # image_files = []
+    # for file in os.listdir(data_download_folder):
+    #     if file.endswith(".png"):
+    #         image_files.append(os.path.join(data_download_folder, file))
+    #
+    # max_vertices = 0
 
+    # # To store processed data from process_image
+    # image_data = []
+    #
+    # for current_image in image_files:
+    #     _, _, polygons, pred_classes, conf_scores, entropies = process_image(
+    #         current_image, conf_thresholds
+    #     )
+    #     if polygons:
+    #         max_vertices = max(max_vertices, max(len(polygon) for polygon in polygons))
+    #     image_data.append(
+    #         {
+    #             "image_path": current_image,
+    #             "polygons": polygons,
+    #             "pred_classes": pred_classes,
+    #             "entropies": entropies,
+    #         }
+    #     )
+    #
+    # # Create dynamic column headers for X/Y coordinates
+    # coordinate_headers = []
+    # for i in range(1, max_vertices + 1):
+    #     coordinate_headers.append(f"X_{i}")
+    #     coordinate_headers.append(f"Y_{i}")
+    #
+    # # Full header row
+    # header = [
+    #     "Image Path",
+    #     "Predicted Class",
+    #     "Center Latitude",
+    #     "Center Longitude",
+    #     "Top Left Latitude",
+    #     "Top Left Longitude",
+    #     "Top Right Latitude",
+    #     "Top Right Longitude",
+    #     "Bottom Left Latitude",
+    #     "Bottom Left Longitude",
+    #     "Bottom Right Latitude",
+    #     "Bottom Right Longitude",
+    # ] + coordinate_headers
+    #
+    # # Process and save to CSV
+    # start_time = time.time()
+    #
+    # with open(csv_file, "w", newline="") as csvfile:
+    #     csvwriter = csv.writer(csvfile)
+    #     csvwriter.writerow(header)  # Write dynamic header row
+    #
+    #     for data in image_data:
+    #         image_path = data["image_path"]
+    #         polygons = data["polygons"]
+    #         pred_classes = data["pred_classes"]
+    #         entropies = data["entropies"]
+    #
+    #         if image_path is None:
+    #             continue
+    #
+    #         xtile, ytile = extract_xtile_ytile(image_path)
+    #         top_left, top_right, bottom_left, bottom_right = tile_corners_to_latlon(
+    #             xtile, ytile, zoom_level
+    #         )
+    #         latitude, longitude = calculate_tile_center(
+    #             top_left, top_right, bottom_left, bottom_right
+    #         )
+    #
+    #         for pred_class, polygon, entropy_value in zip(
+    #             pred_classes, polygons, entropies
+    #         ):
+    #             if entropy_value is None or entropy_value > entropy_threshold:
+    #                 print(
+    #                     f"Skipped {pred_class} due to high entropy: {entropy_value if entropy_value is not None else 'None'}"
+    #                 )
+    #                 continue
+    #
+    #             row = [
+    #                 image_path,
+    #                 pred_class,
+    #                 latitude,
+    #                 longitude,
+    #                 top_left[0],
+    #                 top_left[1],
+    #                 top_right[0],
+    #                 top_right[1],
+    #                 bottom_left[0],
+    #                 bottom_left[1],
+    #                 bottom_right[0],
+    #                 bottom_right[1],
+    #             ]
+    #
+    #             # Flatten polygon coordinates while ensuring it matches max_vertices
+    #             flat_polygon = [coord for point in polygon for coord in point]
+    #             # Fill missing values with None
+    #             flat_polygon += [None] * (2 * max_vertices - len(flat_polygon))
+    #
+    #             row.extend(flat_polygon)
+    #             csvwriter.writerow(row)
+    #
+    # end_time = time.time()
+    #
+    # print(f"CSV file '{csv_file}' saved successfully.")
+    # print(f"Time taken: {end_time - start_time:.2f} seconds.")
+
+    image_data = []
     max_vertices = 0
 
-    # To store processed data from process_image
-    image_data = []
+    # Traverse subfolders like TRY/0, TRY/1, ...
+    for subfolder in sorted(os.listdir(data_download_folder)):
+        subfolder_path = os.path.join(data_download_folder, subfolder)
+        chunk_dir = os.path.join(subfolder_path, "chunks")
+        tile_map_path = os.path.join(subfolder_path, "tile_mapping.csv")
 
-    for current_image in image_files:
-        _, _, polygons, pred_classes, conf_scores, entropies = process_image(
-            current_image, conf_thresholds
-        )
-        if polygons:
-            max_vertices = max(max_vertices, max(len(polygon) for polygon in polygons))
-        image_data.append(
-            {
-                "image_path": current_image,
-                "polygons": polygons,
-                "pred_classes": pred_classes,
-                "entropies": entropies,
-            }
-        )
+        if not os.path.isdir(chunk_dir) or not os.path.exists(tile_map_path):
+            continue
 
-    # Create dynamic column headers for X/Y coordinates
+        # Load mapping: {chunk_0_0.tif: tile_17_96446_56783.tif}
+        tile_mapping = {}
+        with open(tile_map_path, "r") as f:
+            next(f)  # Skip header
+            for line in f:
+                chunk_name, tile_name = line.strip().split(",")
+                tile_mapping[chunk_name] = tile_name
+
+        # Process each chunk image
+        image_files = [
+            os.path.join(chunk_dir, f)
+            for f in os.listdir(chunk_dir)
+            if f.endswith(".tif")
+        ]
+
+        for image_path in image_files:
+            chunk_name = os.path.basename(image_path)
+            if chunk_name not in tile_mapping:
+                print(f"Warning: {chunk_name} not in mapping. Skipping.")
+                continue
+
+            tile_name = tile_mapping[chunk_name]
+            _, _, polygons, pred_classes, conf_scores, entropies = process_image(
+                image_path, conf_thresholds
+            )
+
+            if polygons:
+                max_vertices = max(
+                    max_vertices, max(len(polygon) for polygon in polygons)
+                )
+
+            image_data.append(
+                {
+                    "tile_name": tile_name,
+                    "polygons": polygons,
+                    "pred_classes": pred_classes,
+                    "entropies": entropies,
+                }
+            )
+
+    # ===================== SAVE TO CSV =====================
     coordinate_headers = []
     for i in range(1, max_vertices + 1):
-        coordinate_headers.append(f"X_{i}")
-        coordinate_headers.append(f"Y_{i}")
+        coordinate_headers.extend([f"X_{i}", f"Y_{i}"])
 
-    # Full header row
     header = [
-        "Image Path",
+        "Tile Name",
         "Predicted Class",
         "Center Latitude",
         "Center Longitude",
@@ -358,25 +666,20 @@ def inference_ponds(state, district, block):
         "Bottom Right Longitude",
     ] + coordinate_headers
 
-    # Process and save to CSV
     start_time = time.time()
-
     with open(csv_file, "w", newline="") as csvfile:
         csvwriter = csv.writer(csvfile)
-        csvwriter.writerow(header)  # Write dynamic header row
+        csvwriter.writerow(header)
 
         for data in image_data:
-            image_path = data["image_path"]
+            tile_name = data["tile_name"]
             polygons = data["polygons"]
             pred_classes = data["pred_classes"]
             entropies = data["entropies"]
 
-            if image_path is None:
-                continue
-
-            xtile, ytile = extract_xtile_ytile(image_path)
+            xtile, ytile = extract_xtile_ytile_from_tile_name(tile_name)
             top_left, top_right, bottom_left, bottom_right = tile_corners_to_latlon(
-                xtile, ytile, zoom_level
+                xtile, ytile, zoom
             )
             latitude, longitude = calculate_tile_center(
                 top_left, top_right, bottom_left, bottom_right
@@ -392,7 +695,7 @@ def inference_ponds(state, district, block):
                     continue
 
                 row = [
-                    image_path,
+                    tile_name,
                     pred_class,
                     latitude,
                     longitude,
@@ -406,16 +709,12 @@ def inference_ponds(state, district, block):
                     bottom_right[1],
                 ]
 
-                # Flatten polygon coordinates while ensuring it matches max_vertices
                 flat_polygon = [coord for point in polygon for coord in point]
-                # Fill missing values with None
                 flat_polygon += [None] * (2 * max_vertices - len(flat_polygon))
-
                 row.extend(flat_polygon)
                 csvwriter.writerow(row)
 
     end_time = time.time()
-
     print(f"CSV file '{csv_file}' saved successfully.")
     print(f"Time taken: {end_time - start_time:.2f} seconds.")
 
@@ -523,11 +822,79 @@ def inference_ponds(state, district, block):
     # Convert back to GeoDataFrame
     gdf_combined = gpd.GeoDataFrame(geometry=[combined_polygons], crs="EPSG:4326")
 
+    # # Save the final shapefile in the 'Shapefile_Output' folder
+    # shapefile_path = os.path.join(
+    #     output_folder, f"{csv_basename}_COMBINED_GEOMETRY.shp"
+    # )
+    # gdf_combined.to_file(shapefile_path)
+    # # Create the ZIP file in the 'Shapefile_Output' folder
+    # zip_filename = os.path.join(output_folder, f"{csv_basename}_COMBINED_GEOMETRY.zip")
+    # shapefile_files = glob.glob(
+    #     os.path.join(output_folder, f"{csv_basename}_COMBINED_GEOMETRY.*")
+    # )
+    #
+    # # Exclude the .csv file from the list of files to be zipped
+    # shapefile_files = [file for file in shapefile_files if not file.endswith(".csv")]
+    #
+    # # Add the shapefile files to the zip archive
+    # with zipfile.ZipFile(zip_filename, "w") as zipf:
+    #     for file in shapefile_files:
+    #         zipf.write(file, os.path.basename(file))
+    #
+    # print(f"Created ZIP file: {zip_filename}")
+    #
+    # # Delete the original shapefile files after zipping, but keep the .csv file
+    # for file in shapefile_files:
+    #     os.remove(file)
+    #     print(f"Deleted: {file}")
+    #
+    # print(
+    #     "All shapefile components have been deleted after zipping, except for the .csv file."
+    # )
+    ############ SEPARTE MULTIPOLYGONS
+
+    multipolygon = gdf_combined.iloc[
+        0
+    ].geometry  # TODO: Fix in main script instead of here
+    # Extract all the constituent polygons
+    polygons = [Polygon(p.exterior, p.interiors) for p in multipolygon.geoms]
+
+    # Create a new geodataframe with individual polygons
+    # Copy all other columns from the original dataframe
+    gdf_combined = gpd.GeoDataFrame(
+        [gdf_combined.iloc[0].to_dict() for _ in range(len(polygons))],
+        geometry=polygons,
+        crs=gdf_combined.crs,
+    )
+
+    ########### SAVE AS GEOJSON
+
+    # Save as GeoJSON in a separate output folder
+    output_folder2 = "GeoJSON_Output"
+    os.makedirs(output_folder2, exist_ok=True)
+
+    # Path for the GeoJSON file
+    geojson_path = os.path.join(
+        output_folder2, f"{csv_basename}_COMBINED_GEOMETRY.geojson"
+    )
+
+    # Save GeoDataFrame as GeoJSON
+    gdf_combined.to_file(geojson_path, driver="GeoJSON")
+
+    print(f"GeoJSON file saved to: {geojson_path}")
+
+    ########## SAVE AS SHAPEFILE
+
+    # Ensure the output folder exists
+    output_folder = "Shapefile_Output"
+    os.makedirs(output_folder, exist_ok=True)
+
     # Save the final shapefile in the 'Shapefile_Output' folder
     shapefile_path = os.path.join(
         output_folder, f"{csv_basename}_COMBINED_GEOMETRY.shp"
     )
     gdf_combined.to_file(shapefile_path)
+
     # Create the ZIP file in the 'Shapefile_Output' folder
     zip_filename = os.path.join(output_folder, f"{csv_basename}_COMBINED_GEOMETRY.zip")
     shapefile_files = glob.glob(
@@ -555,7 +922,7 @@ def inference_ponds(state, district, block):
 
     # Export gdf to GEE
     fc_description = f"ponds_{district}_{block}"
-    export_ponds_to_gee(gdf_combined, roi, fc_description, state, district, block)
+    export_gdf_to_gee(gdf_combined, roi, fc_description, state, district, block)
 
 
 def export_ponds_to_gee(gdf, roi, description, state, district, block):

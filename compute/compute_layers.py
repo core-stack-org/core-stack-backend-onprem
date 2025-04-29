@@ -29,12 +29,14 @@ def scrubland_field_delineation(self, state, district, block):
         "--init",
         "-v",
         f"{pwd}/compute/layers:/app",
-        "farm",
+        # "-e http_proxy=http://corestk.visitor:1BDkldnP@xen03.iitd.ernet.in:3128/",
+        # "-e https_proxy=http://corestk.visitor:1BDkldnP@xen03.iitd.ernet.in:3128/",
+        "farms",
         "bash",
         "-c",
         (
             f"cd /app && "
-            f"PYTHONUNBUFFERED=1 PYTHONPATH=/app conda run -n myenv python scrubland_field_delineation/main.py "
+            f"PYTHONUNBUFFERED=1 PYTHONPATH=/app conda run -n myenv python scrubland_field_delineation/script.py "
             f"{valid_gee_text(state)} {valid_gee_text(district)} {valid_gee_text(block)}"
         ),
     ]

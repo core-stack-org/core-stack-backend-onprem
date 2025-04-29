@@ -42,14 +42,17 @@ RUN pip install -q scikit-image
 RUN pip install -q higra
 RUN pip install -q earthengine-api
 RUN pip install -q opencv-python==4.11.0.86
-#RUN conda install -c conda-forge mamba
-#RUN mamba install -c conda-forge segment-geospatial
-RUN pip install -q segment-geospatial
+# RUN pip install -q segment-geospatial
+RUN pip install -q shapely==2.0.7
+RUN pip install -q rasterio==1.4.3
+RUN pip install -q geopandas==1.0.1
+RUN pip install -q pyproj==3.7.1
+RUN pip install -q xyzservices==2025.1.0
 RUN conda install -y -c conda-forge cudatoolkit=11.7 cudnn=8.1.0
 RUN conda install -y -c conda-forge nccl
 RUN conda install -y -c conda-forge gdal==3.6.2
 RUN pip install -q mxnet-cu117
-RUN conda install -y -c conda-forge geetools==1.9.1
+RUN pip install -q ultralytics
 RUN pip uninstall -y numpy
 RUN pip install -q numpy==1.23.1
 

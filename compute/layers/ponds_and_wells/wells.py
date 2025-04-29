@@ -559,6 +559,6 @@ if __name__ == "__main__":
     state = sys.argv[1]
     district = sys.argv[2]
     block = sys.argv[3]
-    # inference_wells(state, district, block)
-    export_wells_to_gee(state, district, block)
+    inference_wells(state, district, block)
+    # export_wells_to_gee(state, district, block)
     print("Processing Done")
