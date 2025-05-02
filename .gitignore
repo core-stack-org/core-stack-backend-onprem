@@ -177,3 +177,4 @@ compute/layers/data
 compute/layers/ponds_and_wells/Models
 compute/layers/scrubland_field_delineation/decode
 compute/layers/scrubland_field_delineation/india_Airbus_SPOT_model.params
+compute/layers/scrubland_field_delineation/plantation_model.pt

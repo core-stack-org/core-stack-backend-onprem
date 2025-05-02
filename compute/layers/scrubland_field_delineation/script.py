@@ -53,7 +53,8 @@ from utils import (
     ee_initialize,
     get_gee_asset_path,
     valid_gee_text,
-    export_gdf_to_gee,
+    upload_shp_to_gee,
+    is_gee_asset_exists,
 )
 
 
@@ -787,20 +788,29 @@ def join_boundaries(output_dir, blocks_count):
         return
     gdf = None
     for ind, domain in enumerate(["all", "plantation"]):
-        join_boundaries_for_domain(output_dir, blocks_count, domain)
+        join_boundaries_for_domain(
+            output_dir, blocks_count, domain
+        )  # TODO Delete these shapefiles after merging into final one?
         gdf_new = gpd.read_file(output_dir + "/" + domain + ".shp")
         if ind == 0:
             gdf = gdf_new
         else:
             gdf = pd.concat([gdf, gdf_new])
+    description = f"{valid_gee_text(district)}_{valid_gee_text(block)}_boundaries"
+    gdf.to_file(output_dir + f"/{description}.shp")
+    zip_vector(output_dir, description)
 
-    gdf.to_file(output_dir + "/all.shp")
-    zip_vector(output_dir, "all")
     with open(output_dir + "/all_done", "w") as f:
         f.write("all done")
 
-    # description = f"boundaries__{valid_gee_text(district)}_{valid_gee_text(block)}"
-    # export_gdf_to_gee(gdf, roi, description, state, district, block)
+
+def export_to_gee():
+    description = f"{valid_gee_text(district)}_{valid_gee_text(block)}_boundaries"
+    asset_id = get_gee_asset_path(state, district, block) + description
+    if is_gee_asset_exists(asset_id):
+        return
+    path = directory + "/" + description + ".shp"
+    upload_shp_to_gee(path, description, asset_id)
 
 
 """
@@ -987,6 +997,9 @@ def run(roi, directory, max_tries=5, delay=1):
                 mark_done(index, directory, blocks_df, "overall_status")
                 attempt = 0
             join_boundaries(directory, len(blocks_df))
+
+            # Export final shape files to GEE
+            export_to_gee()
             complete = True
         except Exception as e:
             if attempt == max_tries:
@@ -1011,7 +1024,7 @@ if __name__ == "__main__":
     # )
     # directory = "data/Area_Peddapally"
 
-    roi = ee.FeatureCollection(
+    roi = ee.FeatureCollection(  # TODO: Ask Raman whether we should use outer boundary only?
         get_gee_asset_path(state, district, block)
         + "filtered_mws_"
         + valid_gee_text(district.lower())
@@ -1021,17 +1034,6 @@ if __name__ == "__main__":
     )
 
     directory = f"data/{state}/{district}/{block}"
-
-    # Boiler plate code to run for a rectangle
-
-    # top_left = [19.26903317, 80.86453702]  # Replace lon1 and lat1 with actual values
-    # bottom_right = [19.24167092, 80.89408520]  # Replace lon2 and lat2 with actual values
-    # directory = "Area_tm"
-
-    # Create a rectangle geometry using the defined corners
-    # rectangle = ee.Geometry.Rectangle([top_left[1], bottom_right[0], bottom_right[1], top_left[0]])
-    # Create a feature collection with the rectangle as a boundary
-    # roi = ee.FeatureCollection([ee.Feature(rectangle)])
 
     os.makedirs(directory, exist_ok=True)
     sys.stdout = Logger(directory + "/output.log")

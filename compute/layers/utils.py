@@ -7,11 +7,9 @@ from google.api_core import retry
 import re
 import json
 import time
-from constants import (
-    GEE_ASSET_PATH,
-    GEE_HELPER_PATH,
-    GCS_BUCKET_NAME,
-)
+import subprocess
+import os
+from constants import *
 
 
 def ee_initialize(project=None):
@@ -22,15 +20,13 @@ def ee_initialize(project=None):
             )
             credentials = ee.ServiceAccountCredentials(
                 service_account,
-                "ee-corestack-helper-a7148ade82db.json",
-                # "/home/core-stack/Code/GitClones/core-stack-backend-onprem/compute/layers/ee-corestack-helper-a7148ade82db.json",
+                GEE_HELPER_SERVICE_ACCOUNT_KEY_PATH,
             )
         else:
             service_account = "core-stack-dev@ee-corestackdev.iam.gserviceaccount.com"
             credentials = ee.ServiceAccountCredentials(
                 service_account,
-                "ee-corestackdev-b1cf638f9352.json",
-                # "/home/core-stack/Code/GitClones/core-stack-backend-onprem/compute/layers/ee-corestackdev-b1cf638f9352.json",
+                GEE_SERVICE_ACCOUNT_KEY_PATH,
             )
         ee.Initialize(credentials)
         print("ee initialized", project)
@@ -46,7 +42,7 @@ def gcs_config():
 
     # Authenticate Google Cloud Storage
     credentials = service_account.Credentials.from_service_account_file(
-        "ee-corestack-helper-a7148ade82db.json",
+        GEE_SERVICE_ACCOUNT_KEY_PATH,
         scopes=["https://www.googleapis.com/auth/cloud-platform"],
     )
 
@@ -98,6 +94,14 @@ def get_gee_asset_path(state, district=None, block=None, asset_path=GEE_ASSET_PA
     if block:
         gee_path += valid_gee_text(block.lower()) + "/"
     return gee_path
+
+
+def is_gee_asset_exists(path):
+    asset = ee.Asset(path)
+    flag = asset.exists()
+    if flag:
+        print(f"{path} already exists.")
+    return flag
 
 
 def gdf_to_ee_fc(gdf):
@@ -278,3 +282,95 @@ def geojson_to_ee_featurecollection(geojson_path):
 
     # Create an Earth Engine FeatureCollection
     return ee.FeatureCollection(ee_features)
+
+
+def upload_file_to_gcs(local_file_path, destination_blob_name):
+    """Upload a file to a Google Cloud Storage bucket"""
+    bucket = gcs_config()
+    print(local_file_path)
+    blob = bucket.blob(destination_blob_name)
+
+    # Set the chunk size to 100 MB (must be a multiple of 256 KB)
+    blob.chunk_size = 100 * 1024 * 1024  # 100 MB
+
+    # Upload the file using a resumable upload
+    blob.upload_from_filename(local_file_path)
+
+    print(f"File {local_file_path} uploaded to {destination_blob_name}.")
+
+
+def gcs_to_gee_asset_cli(gcs_uri, asset_id):
+    """Use earthengine CLI to upload from GCS to GEE asset"""
+    ee_initialize()
+    command = [
+        "earthengine",
+        f"--service_account_file={GEE_SERVICE_ACCOUNT_KEY_PATH}",
+        "upload",
+        "table",
+        f"--asset_id={asset_id}",
+        gcs_uri,
+    ]
+
+    try:
+        result = subprocess.run(command, check=True, capture_output=True, text=True)
+        print("Upload initiated successfully.")
+        print("Output:", result.stdout)
+        if result.returncode == 0:
+            return extract_task_id(result.stdout)
+        return None
+    except subprocess.CalledProcessError as e:
+        print("An error occurred during the upload.")
+        print("Error Output:", e)
+        return None
+
+
+def upload_shp_to_gee(shapefile_path, file_name, asset_id):
+    gcs_blob_name = f"{GCS_SHAPEFILE_BUCKET}/{file_name}/{file_name}.shp"
+
+    # Make sure all shapefile components (.shp, .dbf, .shx, .prj) are uploaded
+    components = [".shp", ".dbf", ".shx", ".prj"]
+    for component in components:
+        base_name = os.path.splitext(shapefile_path)[0]
+        component_path = base_name + component
+        if os.path.exists(component_path):
+            dest_blob = gcs_blob_name.replace(".shp", component)
+            upload_file_to_gcs(component_path, dest_blob)
+
+    # GCS URI to the shapefile
+    gcs_uri = f"gs://core_stack/{gcs_blob_name}"
+
+    # Upload from GCS to GEE
+    task_id = gcs_to_gee_asset_cli(gcs_uri, asset_id)
+    if task_id:
+        check_task_status([task_id], 600)
+
+
+def extract_task_id(command_output):
+    """
+    Extract the Earth Engine task ID from command output.
+
+    Args:
+        command_output (str): The stdout from the earthengine command
+
+    Returns:
+        str or None: The task ID if found, otherwise None
+    """
+    # Looking for patterns like:
+    # "Started upload task with ID: abcdef1234567890"
+    # or "Task ID: abcdef1234567890"
+
+    import re
+
+    # Try different possible patterns
+    patterns = [
+        r"Started upload task with ID: ([a-zA-Z0-9_]+)",
+        r"Task ID: ([a-zA-Z0-9_]+)",
+        r"ID: ([a-zA-Z0-9_]+)",
+    ]
+
+    for pattern in patterns:
+        match = re.search(pattern, command_output)
+        if match:
+            return match.group(1)
+
+    return None

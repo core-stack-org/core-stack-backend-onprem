@@ -12,11 +12,6 @@ def valid_gee_text(description):
 @app.task(bind=True)
 def scrubland_field_delineation(self, state, district, block):
     print("In scrubland_field_delineation")
-    # docker_cmd = f"sudo docker run --shm-size=60gb --gpus all --init -it -v $(pwd)/compute/scrubland_field_delineation_1:/app farm bash -c 'conda run -n myenv python main.py {valid_gee_text(state)} {valid_gee_text(district)} {valid_gee_text(block)}'"
-    # docker_cmd = (
-    #     f"sudo docker run --shm-size=60gb --gpus all --init -it -v $(pwd)/compute/layers:/app farm bash -c "
-    #     f"'cd /app && PYTHONPATH=/app conda run -n myenv python scrubland_field_delineation/main.py {valid_gee_text(state)} {valid_gee_text(district)} {valid_gee_text(block)}'"
-    # )
     pwd = os.getcwd()
 
     cmd = [
@@ -107,11 +102,6 @@ def compute_ponds_detection(self, state, district, block):
 @app.task(bind=True)
 def compute_wells_detection(self, state, district, block):
     print("In compute_wells_detection")
-    # docker_cmd = f"sudo docker run --shm-size=60gb --gpus all --init -it -v $(pwd)/compute/scrubland_field_delineation_1:/app farm bash -c 'conda run -n myenv python main.py {valid_gee_text(state)} {valid_gee_text(district)} {valid_gee_text(block)}'"
-    # docker_cmd = (
-    #     f"sudo docker run --shm-size=60gb --gpus all --init -it -v $(pwd)/compute/layers:/app pondswell:1.1 bash -c "
-    #     f"'cd /app && PYTHONPATH=/app conda run -n myenv python ponds_and_wells/wells_test.py {valid_gee_text(state)} {valid_gee_text(district)} {valid_gee_text(block)}'"
-    # )
     pwd = os.getcwd()
 
     cmd = [
