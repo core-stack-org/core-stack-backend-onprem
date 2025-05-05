@@ -9,9 +9,6 @@ from compute.compute_layers import (
     compute_ponds_detection,
 )
 
-# from compute.layers.ponds_and_wells.ponds import inference_ponds
-# from compute.layers.ponds_and_wells.wells import inference_wells
-
 
 @api_view(["POST"])
 def generate_farm_boundary(request):

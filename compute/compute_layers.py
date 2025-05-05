@@ -2,6 +2,7 @@ import os
 import re
 from core_stack_backend_onprem.celery import app
 import subprocess
+from core_stack_backend_onprem.settings import HTTP_PROXY
 
 
 def valid_gee_text(description):
@@ -25,9 +26,9 @@ def scrubland_field_delineation(self, state, district, block):
         "-v",
         f"{pwd}/compute/layers:/app",
         "-e",
-        "http_proxy=http://corestk.visitor:1BDdklnP@xen03.iitd.ernet.in:3128",
+        f"http_proxy={HTTP_PROXY}",
         "-e",
-        "https_proxy=http://corestk.visitor:1BDklnP@xen03.iitd.ernet.in:3128",
+        f"https_proxy={HTTP_PROXY}",
         "-e",
         "no_proxy=localhost,127.0.0.1,::1",
         "farms",
@@ -73,7 +74,14 @@ def compute_ponds_detection(self, state, district, block):
         "--init",
         "-v",
         f"{pwd}/compute/layers:/app",
-        "pondswell:1.3",
+        "-e",
+        "http_proxy=http://corestk.visitor:1BDdklnP@xen03.iitd.ernet.in:3128",
+        "-e",
+        "https_proxy=http://corestk.visitor:1BDklnP@xen03.iitd.ernet.in:3128",
+        "-e",
+        "no_proxy=localhost,127.0.0.1,::1",
+        # "pondswell:1.3",
+        "farms",
         "bash",
         "-c",
         (
@@ -114,7 +122,14 @@ def compute_wells_detection(self, state, district, block):
         "--init",
         "-v",
         f"{pwd}/compute/layers:/app",
-        "pondswell:1.3",
+        "-e",
+        "http_proxy=http://corestk.visitor:1BDdklnP@xen03.iitd.ernet.in:3128",
+        "-e",
+        "https_proxy=http://corestk.visitor:1BDklnP@xen03.iitd.ernet.in:3128",
+        "-e",
+        "no_proxy=localhost,127.0.0.1,::1",
+        # "pondswell:1.3",
+        "farms",
         "bash",
         "-c",
         (

@@ -57,6 +57,8 @@ from utils import (
     is_gee_asset_exists,
 )
 
+from misc import get_points, download
+
 
 original_image, min_j, min_i, max_j, max_i, instances_predicted = (0, 0, 0, 0, 0, 0)
 mapping = {"farm": 1, "plantation": 2, "scrubland": 3, "rest": 0}
@@ -81,99 +83,99 @@ class Logger:
 """
 
 
-# Function to convert latitude to pixel Y at a given zoom level
-def lat_to_pixel_y(lat, zoom):
-    sin_lat = math.sin(math.radians(lat))
-    pixel_y = (0.5 - math.log((1 + sin_lat) / (1 - sin_lat)) / (4 * math.pi)) * (
-        2 ** (zoom + 8)
-    )
-    return pixel_y
+# # Function to convert latitude to pixel Y at a given zoom level
+# def lat_to_pixel_y(lat, zoom):
+#     sin_lat = math.sin(math.radians(lat))
+#     pixel_y = (0.5 - math.log((1 + sin_lat) / (1 - sin_lat)) / (4 * math.pi)) * (
+#         2 ** (zoom + 8)
+#     )
+#     return pixel_y
+#
+#
+# # Function to convert longitude to pixel X at a given zoom level
+# def lon_to_pixel_x(lon, zoom):
+#     pixel_x = ((lon + 180) / 360) * (2 ** (zoom + 8))
+#     return pixel_x
+
+#
+# # Function to convert pixel X to longitude
+# def pixel_x_to_lon(pixel_x, zoom):
+#     lon = (pixel_x / (2 ** (zoom + 8))) * 360 - 180
+#     return lon
+#
+#
+# # Function to convert pixel Y to latitude
+# def pixel_y_to_lat(pixel_y, zoom):
+#     n = math.pi - 2 * math.pi * pixel_y / (2 ** (zoom + 8))
+#     lat = math.degrees(math.atan(math.sinh(n)))
+#     return lat
 
 
-# Function to convert longitude to pixel X at a given zoom level
-def lon_to_pixel_x(lon, zoom):
-    pixel_x = ((lon + 180) / 360) * (2 ** (zoom + 8))
-    return pixel_x
+# def lat_lon_from_pixel(lat, lon, zoom, scale):
+#     """
+#     Given a starting latitude and longitude, calculate the latitude and longitude
+#     of the opposite corner of a 256x256 image at a given zoom level.
+#     """
+#     pixel_x = lon_to_pixel_x(lon, zoom)
+#     pixel_y = lat_to_pixel_y(lat, zoom)
+#
+#     new_lon = pixel_x_to_lon(pixel_x + 256 * scale, zoom)
+#     new_lat = pixel_y_to_lat(pixel_y + 256 * scale, zoom)
+#
+#     return new_lat, new_lon
 
 
-# Function to convert pixel X to longitude
-def pixel_x_to_lon(pixel_x, zoom):
-    lon = (pixel_x / (2 ** (zoom + 8))) * 360 - 180
-    return lon
+# def divide_tiff_into_chunks(chunk_size, output_dir):
+#     # Load the large TIFF image
+#     input_image_path = output_dir + "/field.tif"
+#     image = Image.open(input_image_path)
+#     # Get image dimensions
+#     width, height = image.size
+#
+#     # Iterate over the image to create 256x256 chunks
+#     ind_i = 0
+#     ind_j = 0
+#     for i in range(0, width, chunk_size):
+#         for j in range(0, height, chunk_size):
+#             # Define the box to crop
+#             box = (i, j, i + chunk_size, j + chunk_size)
+#
+#             # Crop the image using the defined box
+#             chunk = image.crop(box)
+#             # Save each chunk as a separate TIFF file
+#             chunk.save(
+#                 os.path.join(output_dir + "/chunks/", f"chunk_{ind_i}_{ind_j}.tif")
+#             )
+#             ind_j += 1
+#         ind_i += 1
+#         ind_j = 0
+#
+#     print("Image has been split into 256x256 chunks and saved successfully.")
 
 
-# Function to convert pixel Y to latitude
-def pixel_y_to_lat(pixel_y, zoom):
-    n = math.pi - 2 * math.pi * pixel_y / (2 ** (zoom + 8))
-    lat = math.degrees(math.atan(math.sinh(n)))
-    return lat
-
-
-def lat_lon_from_pixel(lat, lon, zoom, scale):
-    """
-    Given a starting latitude and longitude, calculate the latitude and longitude
-    of the opposite corner of a 256x256 image at a given zoom level.
-    """
-    pixel_x = lon_to_pixel_x(lon, zoom)
-    pixel_y = lat_to_pixel_y(lat, zoom)
-
-    new_lon = pixel_x_to_lon(pixel_x + 256 * scale, zoom)
-    new_lat = pixel_y_to_lat(pixel_y + 256 * scale, zoom)
-
-    return new_lat, new_lon
-
-
-def divide_tiff_into_chunks(chunk_size, output_dir):
-    # Load the large TIFF image
-    input_image_path = output_dir + "/field.tif"
-    image = Image.open(input_image_path)
-    # Get image dimensions
-    width, height = image.size
-
-    # Iterate over the image to create 256x256 chunks
-    ind_i = 0
-    ind_j = 0
-    for i in range(0, width, chunk_size):
-        for j in range(0, height, chunk_size):
-            # Define the box to crop
-            box = (i, j, i + chunk_size, j + chunk_size)
-
-            # Crop the image using the defined box
-            chunk = image.crop(box)
-            # Save each chunk as a separate TIFF file
-            chunk.save(
-                os.path.join(output_dir + "/chunks/", f"chunk_{ind_i}_{ind_j}.tif")
-            )
-            ind_j += 1
-        ind_i += 1
-        ind_j = 0
-
-    print("Image has been split into 256x256 chunks and saved successfully.")
-
-
-def download(bbox, output_dir, row, index, directory, blocks_df):
-    if row["download_status"] == True:
-        return
-
-    # scale = 16
-    zoom = 17
-    chunk_size = 256
-
-    (lat1, lon1), (lat2, lon2) = bbox
-    # new_lat, new_lon = lat_lon_from_pixel(lat, lon, zoom, scale)
-    # print(lat,",",lon,new_lat,",",new_lon)
-    # os.makedirs(output_dir, exist_ok=True)
-    os.makedirs(output_dir + "/chunks", exist_ok=True)
-    tms_to_geotiff(
-        output=output_dir + "/field.tif",
-        bbox=[lon1, lat1, lon2, lat2],
-        zoom=zoom,
-        source="Satellite",
-        overwrite=True,
-        threads=1,
-    )
-    divide_tiff_into_chunks(chunk_size, output_dir)
-    mark_done(index, directory, blocks_df, "download_status")
+# def download(bbox, output_dir, row, index, directory, blocks_df):
+#     if row["download_status_" + str(zoom)] == True:
+#         return
+#
+#     # scale = 16
+#     # zoom = 17
+#     chunk_size = 256
+#
+#     (lat1, lon1), (lat2, lon2) = bbox
+#     # new_lat, new_lon = lat_lon_from_pixel(lat, lon, zoom, scale)
+#     # print(lat,",",lon,new_lat,",",new_lon)
+#     # os.makedirs(output_dir, exist_ok=True)
+#     os.makedirs(output_dir + "/chunks", exist_ok=True)
+#     tms_to_geotiff(
+#         output=output_dir + "/field.tif",
+#         bbox=[lon1, lat1, lon2, lat2],
+#         zoom=zoom,
+#         source="Satellite",
+#         overwrite=True,
+#         threads=1,
+#     )
+#     divide_tiff_into_chunks(chunk_size, output_dir)
+#     mark_done(index, directory, blocks_df, "download_status_" + str(zoom))
 
 
 """
@@ -277,14 +279,6 @@ def run_model(output_dir, row, index, directory, blocks_df):
 """
     Helper functions for watershed algorithm
 """
-
-
-# Function to extract the i, j values from the file name
-def extract_indices(file_name):
-    match = re.search(r"chunk_(\d+)_(\d+)\.tif", file_name)
-    if match:
-        return int(match.group(1)), int(match.group(2))
-    return None
 
 
 def get_segmentation(output_dir, row, index, directory, blocks_df):
@@ -819,64 +813,64 @@ Helper function for dividing an roi into blocks
 
 """
 
+#
+# def get_n_boxes(lat, lon, n, zoom, scale):
+#     diagonal_lat_lon = [
+#         (lat, lon),
+#     ]
+#     for i in range(n):
+#         new_lat_lon = lat_lon_from_pixel(lat, lon, zoom, scale)
+#         diagonal_lat_lon.append(new_lat_lon)
+#         lat, lon = new_lat_lon
+#     lats = [i[0] for i in diagonal_lat_lon]
+#     longs = [i[1] for i in diagonal_lat_lon]
+#     return list(product(lats, longs))
 
-def get_n_boxes(lat, lon, n, zoom, scale):
-    diagonal_lat_lon = [
-        (lat, lon),
-    ]
-    for i in range(n):
-        new_lat_lon = lat_lon_from_pixel(lat, lon, zoom, scale)
-        diagonal_lat_lon.append(new_lat_lon)
-        lat, lon = new_lat_lon
-    lats = [i[0] for i in diagonal_lat_lon]
-    longs = [i[1] for i in diagonal_lat_lon]
-    return list(product(lats, longs))
 
-
-def get_points(roi, directory):
-    points_file = Path(directory + "/status.csv")
-    if points_file.is_file():
-        df = pd.read_csv(directory + "/status.csv", index_col=False)
-        df["points"] = df["points"].apply(ast.literal_eval)
-        return df
-    zoom = 17
-    scale = 16
-    bounds = roi.bounds().coordinates().get(0).getInfo()
-    lons = sorted([i[0] for i in bounds])
-    lats = sorted([i[1] for i in bounds])
-    starting_point = lats[-1], lons[0]
-    min_, max_ = (
-        [lon_to_pixel_x(lons[0], zoom), lat_to_pixel_y(lats[0], zoom)],
-        [lon_to_pixel_x(lons[-1], zoom), lat_to_pixel_y(lats[-1], zoom)],
-    )
-    iterations = math.ceil(
-        max(abs(min_[0] - max_[0]), abs(min_[1] - max_[1])) / 256 / 16
-    )
-    points = get_n_boxes(starting_point[0], starting_point[1], iterations, zoom, scale)
-    intersect_list = []
-    print(len(points))
-    index = 0
-    for point in points:
-        top_left = point
-        bottom_right = lat_lon_from_pixel(top_left[0], top_left[1], zoom, scale)
-        rectangle = ee.Geometry.Rectangle(
-            [(top_left[1], top_left[0]), (bottom_right[1], bottom_right[0])]
-        )
-        print(top_left, bottom_right)
-        intersects = roi.geometry().intersects(rectangle, ee.ErrorMargin(1)).getInfo()
-        if intersects:
-            intersect_list.append((index, (top_left, bottom_right)))
-            index += 1
-        print(intersects)
-    df = pd.DataFrame(intersect_list, columns=["index", "points"])
-    df["overall_status"] = False
-    df["download_status"] = False
-    df["model_status"] = False
-    df["segmentation_status"] = False
-    df["postprocessing_status"] = False
-    df["plantation_status"] = False
-    df.to_csv(directory + "/status.csv", index=False)
-    return df
+# def get_points(roi, directory):
+#     points_file = Path(directory + "/status.csv")
+#     if points_file.is_file():
+#         df = pd.read_csv(directory + "/status.csv", index_col=False)
+#         df["points"] = df["points"].apply(ast.literal_eval)
+#         return df
+#     zoom = 17
+#     scale = 16
+#     bounds = roi.bounds().coordinates().get(0).getInfo()
+#     lons = sorted([i[0] for i in bounds])
+#     lats = sorted([i[1] for i in bounds])
+#     starting_point = lats[-1], lons[0]
+#     min_, max_ = (
+#         [lon_to_pixel_x(lons[0], zoom), lat_to_pixel_y(lats[0], zoom)],
+#         [lon_to_pixel_x(lons[-1], zoom), lat_to_pixel_y(lats[-1], zoom)],
+#     )
+#     iterations = math.ceil(
+#         max(abs(min_[0] - max_[0]), abs(min_[1] - max_[1])) / 256 / 16
+#     )
+#     points = get_n_boxes(starting_point[0], starting_point[1], iterations, zoom, scale)
+#     intersect_list = []
+#     print(len(points))
+#     index = 0
+#     for point in points:
+#         top_left = point
+#         bottom_right = lat_lon_from_pixel(top_left[0], top_left[1], zoom, scale)
+#         rectangle = ee.Geometry.Rectangle(
+#             [(top_left[1], top_left[0]), (bottom_right[1], bottom_right[0])]
+#         )
+#         print(top_left, bottom_right)
+#         intersects = roi.geometry().intersects(rectangle, ee.ErrorMargin(1)).getInfo()
+#         if intersects:
+#             intersect_list.append((index, (top_left, bottom_right)))
+#             index += 1
+#         print(intersects)
+#     df = pd.DataFrame(intersect_list, columns=["index", "points"])
+#     df["overall_status"] = False
+#     df["download_status_" + str(zoom)] = False
+#     df["model_status"] = False
+#     df["segmentation_status"] = False
+#     df["postprocessing_status"] = False
+#     df["plantation_status"] = False
+#     df.to_csv(directory + "/status.csv", index=False)
+#     return df
 
 
 def process_image(image_path, model, conf_thresholds, class_names):
@@ -979,9 +973,10 @@ def mark_done(index, output_dir, df, label):
 def run(roi, directory, max_tries=5, delay=1):
     attempt = 0
     complete = False
+
     while attempt < max_tries + 1 and not complete:
         try:
-            blocks_df = get_points(roi, directory)
+            blocks_df = get_points(roi, directory, zoom, scale)
             for _, row in blocks_df[blocks_df["overall_status"] == False].iterrows():
                 index = row["index"]
                 point = row["points"]
@@ -989,15 +984,15 @@ def run(roi, directory, max_tries=5, delay=1):
                 # import ipdb
                 # ipdb.set_trace()
                 output_dir = directory + "/" + str(index)
-                download(point, output_dir, row, index, directory, blocks_df)
+                download(point, output_dir, row, index, directory, blocks_df, zoom)
                 run_model(output_dir, row, index, directory, blocks_df)
                 get_segmentation(output_dir, row, index, directory, blocks_df)
                 run_postprocessing(output_dir, row, index, directory, blocks_df)
                 run_plantation_model(output_dir, row, index, directory, blocks_df)
                 mark_done(index, directory, blocks_df, "overall_status")
                 attempt = 0
-            join_boundaries(directory, len(blocks_df))
 
+            join_boundaries(directory, len(blocks_df))
             # Export final shape files to GEE
             export_to_gee()
             complete = True
@@ -1011,18 +1006,10 @@ def run(roi, directory, max_tries=5, delay=1):
 
 
 if __name__ == "__main__":
-
-    # ee.Authenticate()
-    # ee.Initialize(project="ee-raman")
     ee_initialize()
     state = sys.argv[1]
     district = sys.argv[2]
     block = sys.argv[3]
-    # Set ROI and directory name below
-    # roi = ee.FeatureCollection("users/mtpictd/india_block_boundaries").filter(
-    #     ee.Filter.eq("block", "Peddapally")
-    # )
-    # directory = "data/Area_Peddapally"
 
     roi = ee.FeatureCollection(  # TODO: Ask Raman whether we should use outer boundary only?
         get_gee_asset_path(state, district, block)
@@ -1031,9 +1018,11 @@ if __name__ == "__main__":
         + "_"
         + valid_gee_text(block.lower())
         + "_uid"
-    )
+    ).union()
 
-    directory = f"data/{state}/{district}/{block}"
+    zoom = 17
+    scale = 16
+    directory = f"data/{state}/{district}/{block}/{zoom}"
 
     os.makedirs(directory, exist_ok=True)
     sys.stdout = Logger(directory + "/output.log")
