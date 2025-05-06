@@ -43,7 +43,7 @@ class Logger:
         self.log.flush()
 
 
-model_path = f"ponds_and_wells/Models/Ponds_best.pt"
+model_path = "ponds_and_wells/Models/Ponds_best.pt"
 
 
 def inference_ponds():
@@ -468,8 +468,8 @@ def inference_ponds():
 def export_to_gee():
     description = f"ponds_{valid_gee_text(district)}_{valid_gee_text(block)}"
     asset_id = get_gee_asset_path(state, district, block) + description
-    if is_gee_asset_exists(asset_id):
-        return
+    # if is_gee_asset_exists(asset_id):
+    #     return
     path = directory + "/ponds_output/" + description + ".shp"
     upload_shp_to_gee(path, description, asset_id)
 

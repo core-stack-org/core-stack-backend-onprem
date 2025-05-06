@@ -176,8 +176,6 @@ def download(bbox, output_dir, row, index, directory, blocks_df, zoom):
     if row["download_status_" + str(zoom)]:
         return
 
-    # scale = 16
-    # zoom = 17
     chunk_size = 256
 
     (lat1, lon1), (lat2, lon2) = bbox
