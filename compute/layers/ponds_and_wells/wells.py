@@ -339,10 +339,8 @@ def run(roi, directory, max_tries=5, delay=1):
                 index = row["index"]
                 point = row["points"]
 
-                # import ipdb
-                # ipdb.set_trace()
                 output_dir = directory + "/" + str(index)
-                download(point, output_dir, row, index, directory, blocks_df, zoom)
+                download(point, output_dir, row, index, directory, blocks_df, zoom, scale)
                 # mark_done(index, directory, blocks_df, "overall_status")
                 attempt = 0
             print("Download Completed")
