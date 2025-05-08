@@ -801,8 +801,8 @@ def join_boundaries(output_dir, blocks_count):
 def export_to_gee():
     description = f"{valid_gee_text(district)}_{valid_gee_text(block)}_boundaries"
     asset_id = get_gee_asset_path(state, district, block) + description
-    if is_gee_asset_exists(asset_id):
-        return
+    # if is_gee_asset_exists(asset_id):
+    #     return
     path = directory + "/" + description + ".shp"
     upload_shp_to_gee(path, description, asset_id)
 
@@ -984,7 +984,9 @@ def run(roi, directory, max_tries=5, delay=1):
                 # import ipdb
                 # ipdb.set_trace()
                 output_dir = directory + "/" + str(index)
-                download(point, output_dir, row, index, directory, blocks_df, zoom)
+                download(
+                    point, output_dir, row, index, directory, blocks_df, zoom, scale
+                )
                 run_model(output_dir, row, index, directory, blocks_df)
                 get_segmentation(output_dir, row, index, directory, blocks_df)
                 run_postprocessing(output_dir, row, index, directory, blocks_df)

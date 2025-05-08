@@ -481,6 +481,9 @@ def run(roi, directory, max_tries=5, delay=1):
     while attempt < max_tries + 1 and not complete:
         try:
             blocks_df = get_points(roi, directory, zoom, scale)
+            # for index, point in enumerate(points):
+            #     output_dir = os.path.join(directory, str(index))
+            #     download(point, output_dir, zoom, 16)
             for _, row in blocks_df[
                 blocks_df["download_status_" + str(zoom)] == False
             ].iterrows():
@@ -491,7 +494,9 @@ def run(roi, directory, max_tries=5, delay=1):
                 # import ipdb
                 # ipdb.set_trace()
                 output_dir = directory + "/" + str(index)
-                download(point, output_dir, row, index, directory, blocks_df, zoom)
+                download(
+                    point, output_dir, row, index, directory, blocks_df, zoom, scale
+                )
                 # mark_done(index, directory, blocks_df, "overall_status")
                 attempt = 0
             print("Download Completed")

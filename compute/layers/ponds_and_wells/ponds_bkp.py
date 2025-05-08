@@ -19,7 +19,7 @@ import requests
 import time
 from ultralytics import YOLO
 import skimage
-from samgeo import tms_to_geotiff
+from commons import tms_to_geotiff
 import ee
 import sys
 from utils import (
@@ -29,7 +29,20 @@ from utils import (
     ee_initialize,
     export_gdf_to_gee,
 )
-from constants import PONDS_WELLS_DATA_PATH, PONDS_WELLS_MODEL_PATH, GEE_HELPER_PATH
+
+
+class Logger:
+    def __init__(self, filename):
+        self.terminal = sys.stdout
+        self.log = open(filename, "a")
+
+    def write(self, message):
+        self.terminal.write(message)
+        self.log.write(message)
+
+    def flush(self):
+        self.terminal.flush()
+        self.log.flush()
 
 
 def inference_ponds(state, district, block):
@@ -43,40 +56,43 @@ def inference_ponds(state, district, block):
         + "_"
         + valid_gee_text(block.lower())
         + "_uid"
-    )
-    gdf = ee_to_gdf(roi)
+    ).union()
+    # gdf = ee_to_gdf(roi)
 
     # Zoom level
     zoom = 17
 
     # Folder paths where you want to save image tiles
     # block_name = "around_masalia"  # 'masalia_subset'
-    data_download_folder = os.path.join(
-        PONDS_WELLS_DATA_PATH,
-        "input",
-        str(zoom),
-        block,
-    )
+    # data_download_folder = os.path.join(
+    #     PONDS_WELLS_DATA_PATH,
+    #     "input",
+    #     str(zoom),
+    #     block,
+    # )
     # data_download_folder
+    directory = f"data/{state}/{district}/{block}/{zoom}"
+    os.makedirs(directory, exist_ok=True)
+    sys.stdout = Logger(directory + "/output.log")
 
     # Scale of image tile
-    scale = 1  # scale of 1 = 256*256 dimensional image
+    # scale = 1  # scale of 1 = 256*256 dimensional image
 
     # Entropy threshold needed to calculate entropy (only in wet ponds case)
     entropy_threshold = 2.5
 
     # model_path = os.path.join(os.environ["MODELS"], "ponds_and_wells", "Ponds_best.pt")
-    model_path = f"{PONDS_WELLS_MODEL_PATH}/Ponds_best.pt"
+    model_path = "ponds_and_wells/Models/Ponds_best.pt"
 
-    output_folder = os.path.join(
-        f"{PONDS_WELLS_DATA_PATH}/output/{str(zoom)}",
-        block,
-    )
+    # output_folder = os.path.join(
+    #     f"{PONDS_WELLS_DATA_PATH}/output/{str(zoom)}",
+    #     block,
+    # )
+    #
+    # if not os.path.exists(output_folder):
+    #     os.mkdir(output_folder)
 
-    if not os.path.exists(output_folder):
-        os.mkdir(output_folder)
-
-    csv_file = os.path.join(output_folder, block + ".csv")
+    csv_file = os.path.join(directory, block + ".csv")
 
     print(csv_file)
 
@@ -203,16 +219,29 @@ def inference_ponds(state, district, block):
             256, output_dir, zoom, exact_max_lat, exact_min_lon
         )
 
+    # def get_n_boxes(lat, lon, n, zoom, scale):
+    #     diagonal_lat_lon = [(lat, lon)]
+    #     for _ in range(n):
+    #         pixel_x = lon_to_pixel_x(lon, zoom) + (256 * scale)
+    #         new_lon = pixel_x_to_lon(pixel_x, zoom)
+    #         pixel_y = lat_to_pixel_y(lat, zoom) + (256 * scale)
+    #         new_lat = pixel_y_to_lat(pixel_y, zoom)
+    #         diagonal_lat_lon.append((new_lat, new_lon))
+    #         lat, lon = new_lat, new_lon
+    #     return diagonal_lat_lon
+    from itertools import product
+
     def get_n_boxes(lat, lon, n, zoom, scale):
-        diagonal_lat_lon = [(lat, lon)]
-        for _ in range(n):
-            pixel_x = lon_to_pixel_x(lon, zoom) + (256 * scale)
-            new_lon = pixel_x_to_lon(pixel_x, zoom)
-            pixel_y = lat_to_pixel_y(lat, zoom) + (256 * scale)
-            new_lat = pixel_y_to_lat(pixel_y, zoom)
-            diagonal_lat_lon.append((new_lat, new_lon))
-            lat, lon = new_lat, new_lon
-        return diagonal_lat_lon
+        diagonal_lat_lon = [
+            (lat, lon),
+        ]
+        for i in range(n):
+            new_lat_lon = lat_lon_from_pixel(lat, lon, zoom, scale)
+            diagonal_lat_lon.append(new_lat_lon)
+            lat, lon = new_lat_lon
+        lats = [i[0] for i in diagonal_lat_lon]
+        longs = [i[1] for i in diagonal_lat_lon]
+        return list(product(lats, longs))
 
     def get_points(roi, zoom, scale):
         bounds = roi.bounds().coordinates().get(0).getInfo()
@@ -239,131 +268,21 @@ def inference_ponds(state, district, block):
                 intersect_list.append(point)
         return intersect_list
 
-    top_left = [23.531653742232088, 85.82344897858329]
-    bottom_right = [23.64099145921938, 85.99871524445243]
-    rectangle = ee.Geometry.Rectangle(
-        [top_left[1], bottom_right[0], bottom_right[1], top_left[0]]
-    )
-    roi = ee.FeatureCollection([ee.Feature(rectangle)])
-
-    print("Area of the Rectangle: ", rectangle.area().getInfo() / 1e6, "sq km")
+    # top_left = [23.531653742232088, 85.82344897858329]
+    # bottom_right = [23.64099145921938, 85.99871524445243]
+    # rectangle = ee.Geometry.Rectangle(
+    #     [top_left[1], bottom_right[0], bottom_right[1], top_left[0]]
+    # )
+    # roi = ee.FeatureCollection([ee.Feature(rectangle)])
+    #
+    # print("Area of the Rectangle: ", rectangle.area().getInfo() / 1e6, "sq km")
     points = get_points(roi, zoom, 16)
     print(f"Running for {len(points)} points...")
 
     for index, point in enumerate(points):
-        output_dir = os.path.join(data_download_folder, str(index))
+        print(f"Iterating index={index}, point= {point}")
+        output_dir = os.path.join(directory, str(index))
         download(point, output_dir, zoom, 16)
-
-    # Download Data for Inference
-
-    # Get Bounding boxes automatically from GeoJSON instead of manually drawing on GEE
-
-    # # Get the bounding box coordinates
-    # minx, miny, maxx, maxy = gdf.total_bounds
-    #
-    # # Define bounding box points
-    # topLeft = [minx, maxy]
-    # topRight = [maxx, maxy]
-    # bottomRight = [maxx, miny]
-    # bottomLeft = [minx, miny]
-    #
-    # # topLeft = [87.17053768466987, 24.139038123063]
-    # # topRight = [87.17703935932197, 24.139038123063]
-    # # bottomRight = [87.17703935932197, 24.143874618138323]
-    # # bottomLeft = [87.17053768466987, 24.143874618138323]
-    #
-    # # Helper function to convert latitude and longitude to tile numbers
-    # def deg2num(lat_deg, lon_deg, zoom):
-    #     lat_rad = math.radians(lat_deg)
-    #     n = 2.0**zoom
-    #     xtile = int((lon_deg + 180.0) / 360.0 * n)
-    #     ytile = int(
-    #         (1.0 - math.log(math.tan(lat_rad) + (1 / math.cos(lat_rad))) / math.pi)
-    #         / 2.0
-    #         * n
-    #     )
-    #     return (xtile, ytile)
-    #
-    # # Function to download map tiles
-    # def download_map_tiles(
-    #     base_url,
-    #     image_dir,
-    #     zoom_level,
-    #     scale,
-    #     topLeft,
-    #     topRight,
-    #     bottomLeft,
-    #     bottomRight,
-    # ):
-    #     # Ensure output folder exists
-    #
-    #     # os.makedirs(image_dir, exist_ok=True)
-    #
-    #     # Convert lat/lon to tile numbers and get bounding box
-    #     topleft = deg2num(topLeft[1], topLeft[0], zoom_level)
-    #     topright = deg2num(topRight[1], topRight[0], zoom_level)
-    #     bottomleft = deg2num(bottomLeft[1], bottomLeft[0], zoom_level)
-    #     bottomright = deg2num(bottomRight[1], bottomRight[0], zoom_level)
-    #
-    #     xmin = min(topleft[0], topright[0], bottomleft[0], bottomright[0])
-    #     xmax = max(topleft[0], topright[0], bottomleft[0], bottomright[0])
-    #     ymin = min(topleft[1], topright[1], bottomleft[1], bottomright[1])
-    #     ymax = max(topleft[1], topright[1], bottomleft[1], bottomright[1])
-    #
-    #     # Get start time
-    #     start_time = time.time()
-    #
-    #     # Iterate over each tile within the specified range
-    #     for x in range(xmin, xmax + 1):
-    #         for y in range(ymin, ymax + 1):
-    #             # Construct the URL for the current tile with scale=3 for 640x640
-    #             tile_url = f"{base_url}&x={x}&y={y}&z={zoom_level}&scale={scale}"
-    #             print(tile_url)
-    #             try:
-    #                 # Send HTTP GET request to fetch the tile
-    #                 response = requests.get(tile_url)
-    #
-    #                 # Check if request was successful (status code 200)
-    #                 if response.status_code == 200:
-    #                     # Save the tile image to a file in the output folder
-    #                     filename = f"tile_{zoom_level}_{x}_{y}.png"
-    #                     filepath = os.path.join(image_dir, filename)
-    #                     with open(filepath, "wb") as f:
-    #                         f.write(response.content)
-    #                     print(f"Downloaded: {filename}")
-    #                 else:
-    #                     print(
-    #                         f"Failed to download tile ({x}, {y}), HTTP status code: {response.status_code}"
-    #                     )
-    #
-    #             except Exception as e:
-    #                 print(f"Error downloading tile ({x}, {y}): {e}")
-    #
-    #     # Get end time
-    #     end_time = time.time()
-    #
-    #     # Print the total execution time
-    #     print(f"Total time taken: {end_time - start_time} seconds")
-    #
-    # base_url = "https://mt1.google.com/vt/lyrs=s"
-    #
-    # if not os.path.exists(data_download_folder):
-    #     os.makedirs(data_download_folder)
-    #     print(f"Created the folder: {data_download_folder}")
-    #
-    #     # Call the function to download map tiles
-    #     download_map_tiles(
-    #         base_url,
-    #         data_download_folder,
-    #         zoom_level,
-    #         scale,
-    #         topLeft,
-    #         topRight,
-    #         bottomLeft,
-    #         bottomRight,
-    #     )
-    # else:
-    #     print(f"data already downloaded: {data_download_folder}")
 
     # SAVE PREDICTIONS IN CSV
     conf_thresholds = {"Dry": 0.75, "Wet": 0.6}
@@ -485,121 +404,12 @@ def inference_ponds(state, district, block):
         center_lon = (top_left[1] + top_right[1]) / 2
         return (center_lat, center_lon)
 
-    # Predictions
-    # image_files = []
-    # for file in os.listdir(data_download_folder):
-    #     if file.endswith(".png"):
-    #         image_files.append(os.path.join(data_download_folder, file))
-    #
-    # max_vertices = 0
-
-    # # To store processed data from process_image
-    # image_data = []
-    #
-    # for current_image in image_files:
-    #     _, _, polygons, pred_classes, conf_scores, entropies = process_image(
-    #         current_image, conf_thresholds
-    #     )
-    #     if polygons:
-    #         max_vertices = max(max_vertices, max(len(polygon) for polygon in polygons))
-    #     image_data.append(
-    #         {
-    #             "image_path": current_image,
-    #             "polygons": polygons,
-    #             "pred_classes": pred_classes,
-    #             "entropies": entropies,
-    #         }
-    #     )
-    #
-    # # Create dynamic column headers for X/Y coordinates
-    # coordinate_headers = []
-    # for i in range(1, max_vertices + 1):
-    #     coordinate_headers.append(f"X_{i}")
-    #     coordinate_headers.append(f"Y_{i}")
-    #
-    # # Full header row
-    # header = [
-    #     "Image Path",
-    #     "Predicted Class",
-    #     "Center Latitude",
-    #     "Center Longitude",
-    #     "Top Left Latitude",
-    #     "Top Left Longitude",
-    #     "Top Right Latitude",
-    #     "Top Right Longitude",
-    #     "Bottom Left Latitude",
-    #     "Bottom Left Longitude",
-    #     "Bottom Right Latitude",
-    #     "Bottom Right Longitude",
-    # ] + coordinate_headers
-    #
-    # # Process and save to CSV
-    # start_time = time.time()
-    #
-    # with open(csv_file, "w", newline="") as csvfile:
-    #     csvwriter = csv.writer(csvfile)
-    #     csvwriter.writerow(header)  # Write dynamic header row
-    #
-    #     for data in image_data:
-    #         image_path = data["image_path"]
-    #         polygons = data["polygons"]
-    #         pred_classes = data["pred_classes"]
-    #         entropies = data["entropies"]
-    #
-    #         if image_path is None:
-    #             continue
-    #
-    #         xtile, ytile = extract_xtile_ytile(image_path)
-    #         top_left, top_right, bottom_left, bottom_right = tile_corners_to_latlon(
-    #             xtile, ytile, zoom_level
-    #         )
-    #         latitude, longitude = calculate_tile_center(
-    #             top_left, top_right, bottom_left, bottom_right
-    #         )
-    #
-    #         for pred_class, polygon, entropy_value in zip(
-    #             pred_classes, polygons, entropies
-    #         ):
-    #             if entropy_value is None or entropy_value > entropy_threshold:
-    #                 print(
-    #                     f"Skipped {pred_class} due to high entropy: {entropy_value if entropy_value is not None else 'None'}"
-    #                 )
-    #                 continue
-    #
-    #             row = [
-    #                 image_path,
-    #                 pred_class,
-    #                 latitude,
-    #                 longitude,
-    #                 top_left[0],
-    #                 top_left[1],
-    #                 top_right[0],
-    #                 top_right[1],
-    #                 bottom_left[0],
-    #                 bottom_left[1],
-    #                 bottom_right[0],
-    #                 bottom_right[1],
-    #             ]
-    #
-    #             # Flatten polygon coordinates while ensuring it matches max_vertices
-    #             flat_polygon = [coord for point in polygon for coord in point]
-    #             # Fill missing values with None
-    #             flat_polygon += [None] * (2 * max_vertices - len(flat_polygon))
-    #
-    #             row.extend(flat_polygon)
-    #             csvwriter.writerow(row)
-    #
-    # end_time = time.time()
-    #
-    # print(f"CSV file '{csv_file}' saved successfully.")
-    # print(f"Time taken: {end_time - start_time:.2f} seconds.")
-
     image_data = []
     max_vertices = 0
 
     # Traverse subfolders like TRY/0, TRY/1, ...
-    for subfolder in sorted(os.listdir(data_download_folder)):
-        subfolder_path = os.path.join(data_download_folder, subfolder)
+    for subfolder in sorted(os.listdir(directory)):
+        subfolder_path = os.path.join(directory, subfolder)
         chunk_dir = os.path.join(subfolder_path, "chunks")
         tile_map_path = os.path.join(subfolder_path, "tile_mapping.csv")
 
@@ -822,40 +632,9 @@ def inference_ponds(state, district, block):
     # Convert back to GeoDataFrame
     gdf_combined = gpd.GeoDataFrame(geometry=[combined_polygons], crs="EPSG:4326")
 
-    # # Save the final shapefile in the 'Shapefile_Output' folder
-    # shapefile_path = os.path.join(
-    #     output_folder, f"{csv_basename}_COMBINED_GEOMETRY.shp"
-    # )
-    # gdf_combined.to_file(shapefile_path)
-    # # Create the ZIP file in the 'Shapefile_Output' folder
-    # zip_filename = os.path.join(output_folder, f"{csv_basename}_COMBINED_GEOMETRY.zip")
-    # shapefile_files = glob.glob(
-    #     os.path.join(output_folder, f"{csv_basename}_COMBINED_GEOMETRY.*")
-    # )
-    #
-    # # Exclude the .csv file from the list of files to be zipped
-    # shapefile_files = [file for file in shapefile_files if not file.endswith(".csv")]
-    #
-    # # Add the shapefile files to the zip archive
-    # with zipfile.ZipFile(zip_filename, "w") as zipf:
-    #     for file in shapefile_files:
-    #         zipf.write(file, os.path.basename(file))
-    #
-    # print(f"Created ZIP file: {zip_filename}")
-    #
-    # # Delete the original shapefile files after zipping, but keep the .csv file
-    # for file in shapefile_files:
-    #     os.remove(file)
-    #     print(f"Deleted: {file}")
-    #
-    # print(
-    #     "All shapefile components have been deleted after zipping, except for the .csv file."
-    # )
     ############ SEPARTE MULTIPOLYGONS
 
-    multipolygon = gdf_combined.iloc[
-        0
-    ].geometry  # TODO: Fix in main script instead of here
+    multipolygon = gdf_combined.iloc[0].geometry
     # Extract all the constituent polygons
     polygons = [Polygon(p.exterior, p.interiors) for p in multipolygon.geoms]
 
@@ -870,13 +649,13 @@ def inference_ponds(state, district, block):
     ########### SAVE AS GEOJSON
 
     # Save as GeoJSON in a separate output folder
-    output_folder2 = "GeoJSON_Output"
-    os.makedirs(output_folder2, exist_ok=True)
+    output_folder = directory + "/ponds_output"
+    os.makedirs(output_folder, exist_ok=True)
+
+    description = f"ponds_{valid_gee_text(district)}_{valid_gee_text(block)}"
 
     # Path for the GeoJSON file
-    geojson_path = os.path.join(
-        output_folder2, f"{csv_basename}_COMBINED_GEOMETRY.geojson"
-    )
+    geojson_path = os.path.join(output_folder, f"{description}.geojson")
 
     # Save GeoDataFrame as GeoJSON
     gdf_combined.to_file(geojson_path, driver="GeoJSON")
@@ -886,20 +665,15 @@ def inference_ponds(state, district, block):
     ########## SAVE AS SHAPEFILE
 
     # Ensure the output folder exists
-    output_folder = "Shapefile_Output"
     os.makedirs(output_folder, exist_ok=True)
 
     # Save the final shapefile in the 'Shapefile_Output' folder
-    shapefile_path = os.path.join(
-        output_folder, f"{csv_basename}_COMBINED_GEOMETRY.shp"
-    )
+    shapefile_path = os.path.join(output_folder, f"{description}.shp")
     gdf_combined.to_file(shapefile_path)
 
     # Create the ZIP file in the 'Shapefile_Output' folder
-    zip_filename = os.path.join(output_folder, f"{csv_basename}_COMBINED_GEOMETRY.zip")
-    shapefile_files = glob.glob(
-        os.path.join(output_folder, f"{csv_basename}_COMBINED_GEOMETRY.*")
-    )
+    zip_filename = os.path.join(output_folder, f"{description}.zip")
+    shapefile_files = glob.glob(os.path.join(output_folder, f"{description}.*"))
 
     # Exclude the .csv file from the list of files to be zipped
     shapefile_files = [file for file in shapefile_files if not file.endswith(".csv")]
@@ -911,14 +685,14 @@ def inference_ponds(state, district, block):
 
     print(f"Created ZIP file: {zip_filename}")
 
-    # Delete the original shapefile files after zipping, but keep the .csv file
-    for file in shapefile_files:
-        os.remove(file)
-        print(f"Deleted: {file}")
-
-    print(
-        "All shapefile components have been deleted after zipping, except for the .csv file."
-    )
+    # # Delete the original shapefile files after zipping, but keep the .csv file
+    # for file in shapefile_files:
+    #     os.remove(file)
+    #     print(f"Deleted: {file}")
+    #
+    # print(
+    #     "All shapefile components have been deleted after zipping, except for the .csv file."
+    # )
 
     # Export gdf to GEE
     fc_description = f"ponds_{district}_{block}"
