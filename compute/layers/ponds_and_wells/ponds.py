@@ -22,8 +22,9 @@ from utils import (
     ee_initialize,
     get_gee_asset_path,
     valid_gee_text,
-    upload_shp_to_gee,
+    # upload_shp_to_gee,
     is_gee_asset_exists,
+    export_gdf_to_gee,
 )
 
 from misc import get_points, download, mark_done
@@ -61,8 +62,6 @@ def inference_ponds():
     entropy_threshold = 2.5
 
     # Function to calculate entropy
-
-    # %%
     def get_entropy(img, mask):
         img_gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY).astype(
             np.float32
@@ -182,7 +181,6 @@ def inference_ponds():
 
         if not os.path.isdir(chunk_dir) or not os.path.exists(tile_map_path):
             continue
-        print(subfolder)
         # Load mapping: {chunk_0_0.tif: tile_17_96446_56783.tif}
         tile_mapping = {}
         with open(tile_map_path, "r") as f:
@@ -294,22 +292,13 @@ def inference_ponds():
     print(f"CSV file '{csv_file}' saved successfully.")
     print(f"Time taken: {end_time - start_time:.2f} seconds.")
 
-    # %% [markdown]
-    # # Add Buffer to combine nearby predicted objects
-
-    # %%
-    EARTH_CIRCUMFERENCE_DEGREES = 360  # degrees
-
-    # %%
     # Load the CSV file
     df = pd.read_csv(csv_file)
     df.rename(columns={"Predicted Class": "Class"}, inplace=True)
 
-    # %%
     # Extract the base name dynamically (e.g., "TRY" from "TRY.csv")
     csv_basename = os.path.splitext(os.path.basename(csv_file))[0]
 
-    # %%
     # Function to convert pixel coordinates to geo-coordinates
     def pixel_to_geo(
         x,
@@ -461,17 +450,17 @@ def inference_ponds():
     # )
 
     # Export gdf to GEE
-    # fc_description = f"ponds_{district}_{block}"
-    # export_gdf_to_gee(gdf_combined, roi, fc_description, state, district, block)
+    fc_description = f"ponds_{district}_{block}"
+    export_gdf_to_gee(gdf_combined, roi, fc_description, state, district, block)
 
 
-def export_to_gee():
-    description = f"ponds_{valid_gee_text(district)}_{valid_gee_text(block)}"
-    asset_id = get_gee_asset_path(state, district, block) + description
-    # if is_gee_asset_exists(asset_id):
-    #     return
-    path = directory + "/ponds_output/" + description + ".shp"
-    upload_shp_to_gee(path, description, asset_id)
+# def export_to_gee():
+#     description = f"ponds_{valid_gee_text(district)}_{valid_gee_text(block)}"
+#     asset_id = get_gee_asset_path(state, district, block) + description
+#     # if is_gee_asset_exists(asset_id):
+#     #     return
+#     path = directory + "/ponds_output/" + description + ".shp"
+#     upload_shp_to_gee(path, description, asset_id)
 
 
 def run(roi, directory, max_tries=5, delay=1):
@@ -484,7 +473,6 @@ def run(roi, directory, max_tries=5, delay=1):
             for _, row in blocks_df[
                 blocks_df["download_status_" + str(zoom)] == False
             ].iterrows():
-                print("Index>>>>", row["index"])
                 index = row["index"]
                 point = row["points"]
 
@@ -492,11 +480,10 @@ def run(roi, directory, max_tries=5, delay=1):
                 download(
                     point, output_dir, row, index, directory, blocks_df, zoom, scale
                 )
-                # mark_done(index, directory, blocks_df, "overall_status")
                 attempt = 0
             print("Download Completed")
             inference_ponds()
-            export_to_gee()
+            # export_to_gee()
             complete = True
         except Exception as e:
             if attempt == max_tries:
@@ -526,7 +513,7 @@ if __name__ == "__main__":
     directory = f"data/{state}/{district}/{block}/{zoom}"
 
     os.makedirs(directory, exist_ok=True)
-    sys.stdout = Logger(directory + "/output.log")
+    sys.stdout = Logger(directory + "/ponds.log")
     print("Area of the Rectangle is ", roi.geometry().area().getInfo() / 1e6)
 
     # print("Running for " + str(len(blocks_df)) + " points...")

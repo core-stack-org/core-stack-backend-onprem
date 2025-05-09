@@ -22,9 +22,11 @@ from utils import (
     valid_gee_text,
     upload_shp_to_gee,
     is_gee_asset_exists,
+    export_gdf_to_gee,
 )
 
 from misc import get_points, download
+
 
 class Logger:
     def __init__(self, filename):
@@ -39,6 +41,7 @@ class Logger:
         self.terminal.flush()
         self.log.flush()
 
+
 def inference_wells():
     # load trained model
     model_path = "ponds_and_wells/Models/Wells_best.pt"
@@ -48,19 +51,17 @@ def inference_wells():
 
     # Define class-specific confidence thresholds
     conf_thresholds = {
-        'Wells': 0.71,
+        "Wells": 0.71,
     }
 
     # Class names (ensure these match the order used in your model training)
     class_names = [
-        'Wells',
-
+        "Wells",
     ]
 
     # Mapping of class names to abbreviations
     class_abbreviations = {
-        'Wells': 'W',
-
+        "Wells": "W",
     }
     my_new_model = YOLO(model_path)
 
@@ -78,7 +79,12 @@ def inference_wells():
 
         if results[0].masks is not None:
             for i, (polygon, cls, conf) in enumerate(
-                    zip(results[0].masks.xy, results[0].boxes.cls.cpu().numpy(), results[0].boxes.conf.cpu().numpy())):
+                zip(
+                    results[0].masks.xy,
+                    results[0].boxes.cls.cpu().numpy(),
+                    results[0].boxes.conf.cpu().numpy(),
+                )
+            ):
                 class_name = class_names[int(cls)]
                 if conf >= conf_thresholds[class_name]:
                     polygons.append(polygon)
@@ -95,7 +101,7 @@ def inference_wells():
 
     def extract_xtile_ytile_from_tile_name(tile_name):
         try:
-            parts = tile_name.replace('.tif', '').split('_')
+            parts = tile_name.replace(".tif", "").split("_")
             if len(parts) == 4:
                 xtile = int(parts[2])
                 ytile = int(parts[3])
@@ -106,7 +112,7 @@ def inference_wells():
             raise ValueError(f"Invalid tile name {tile_name}: {e}")
 
     def tile_corners_to_latlon(xtile, ytile, zoom):
-        n = 2.0 ** zoom
+        n = 2.0**zoom
         lon_deg = xtile / n * 360.0 - 180.0
         lat_rad_nw = math.atan(math.sinh(math.pi * (1 - 2 * (ytile / n))))
         lat_deg_nw = math.degrees(lat_rad_nw)
@@ -144,14 +150,18 @@ def inference_wells():
 
         # Load mapping: {chunk_0_0.tif: tile_17_96446_56783.tif}
         tile_mapping = {}
-        with open(tile_map_path, 'r') as f:
+        with open(tile_map_path, "r") as f:
             next(f)  # Skip header
             for line in f:
-                chunk_name, tile_name = line.strip().split(',')
+                chunk_name, tile_name = line.strip().split(",")
                 tile_mapping[chunk_name] = tile_name
 
         # Process each chunk image
-        image_files = [os.path.join(chunk_dir, f) for f in os.listdir(chunk_dir) if f.endswith(".tif")]
+        image_files = [
+            os.path.join(chunk_dir, f)
+            for f in os.listdir(chunk_dir)
+            if f.endswith(".tif")
+        ]
 
         for image_path in image_files:
             chunk_name = os.path.basename(image_path)
@@ -160,44 +170,76 @@ def inference_wells():
                 continue
 
             tile_name = tile_mapping[chunk_name]
-            _, _, polygons, pred_classes, conf_scores = process_image(image_path, conf_thresholds)
+            _, _, polygons, pred_classes, conf_scores = process_image(
+                image_path, conf_thresholds
+            )
 
             if polygons:
-                max_vertices = max(max_vertices, max(len(polygon) for polygon in polygons))
+                max_vertices = max(
+                    max_vertices, max(len(polygon) for polygon in polygons)
+                )
 
-            image_data.append({
-                'tile_name': tile_name,
-                'polygons': polygons,
-                'pred_classes': pred_classes,
-            })
+            image_data.append(
+                {
+                    "tile_name": tile_name,
+                    "polygons": polygons,
+                    "pred_classes": pred_classes,
+                }
+            )
 
     # ===================== SAVE TO CSV =====================
     coordinate_headers = []
     for i in range(1, max_vertices + 1):
         coordinate_headers.extend([f"X_{i}", f"Y_{i}"])
 
-    header = ["Tile Name", "Predicted Class", "Center Latitude", "Center Longitude",
-              "Top Left Latitude", "Top Left Longitude", "Top Right Latitude", "Top Right Longitude",
-              "Bottom Left Latitude", "Bottom Left Longitude", "Bottom Right Latitude",
-              "Bottom Right Longitude"] + coordinate_headers
+    header = [
+        "Tile Name",
+        "Predicted Class",
+        "Center Latitude",
+        "Center Longitude",
+        "Top Left Latitude",
+        "Top Left Longitude",
+        "Top Right Latitude",
+        "Top Right Longitude",
+        "Bottom Left Latitude",
+        "Bottom Left Longitude",
+        "Bottom Right Latitude",
+        "Bottom Right Longitude",
+    ] + coordinate_headers
 
     start_time = time.time()
-    with open(csv_file, 'w', newline='') as csvfile:
+    with open(csv_file, "w", newline="") as csvfile:
         csvwriter = csv.writer(csvfile)
         csvwriter.writerow(header)
 
         for data in image_data:
-            tile_name = data['tile_name']
-            polygons = data['polygons']
-            pred_classes = data['pred_classes']
+            tile_name = data["tile_name"]
+            polygons = data["polygons"]
+            pred_classes = data["pred_classes"]
 
             xtile, ytile = extract_xtile_ytile_from_tile_name(tile_name)
-            top_left, top_right, bottom_left, bottom_right = tile_corners_to_latlon(xtile, ytile, zoom)
-            latitude, longitude = calculate_tile_center(top_left, top_right, bottom_left, bottom_right)
+            top_left, top_right, bottom_left, bottom_right = tile_corners_to_latlon(
+                xtile, ytile, zoom
+            )
+            latitude, longitude = calculate_tile_center(
+                top_left, top_right, bottom_left, bottom_right
+            )
 
             for pred_class, polygon in zip(pred_classes, polygons):
-                row = [tile_name, pred_class, latitude, longitude, top_left[0], top_left[1],
-                       top_right[0], top_right[1], bottom_left[0], bottom_left[1], bottom_right[0], bottom_right[1]]
+                row = [
+                    tile_name,
+                    pred_class,
+                    latitude,
+                    longitude,
+                    top_left[0],
+                    top_left[1],
+                    top_right[0],
+                    top_right[1],
+                    bottom_left[0],
+                    bottom_left[1],
+                    bottom_right[0],
+                    bottom_right[1],
+                ]
 
                 flat_polygon = [coord for point in polygon for coord in point]
                 flat_polygon += [None] * (2 * max_vertices - len(flat_polygon))
@@ -211,26 +253,39 @@ def inference_wells():
     EARTH_CIRCUMFERENCE_DEGREES = 360
 
     df = pd.read_csv(csv_file)
-    df.rename(columns={'Predicted Class': 'Class'}, inplace=True)
+    df.rename(columns={"Predicted Class": "Class"}, inplace=True)
 
     # Extract the base name dynamically (e.g., "TRY" from "TRY.csv")
     csv_basename = os.path.splitext(os.path.basename(csv_file))[0]
 
     def degrees_per_pixel(zoom):
-        total_pixels = 256 * (2 ** zoom)
+        total_pixels = 256 * (2**zoom)
         return EARTH_CIRCUMFERENCE_DEGREES / total_pixels
 
-    def pixel_to_geo(x, y, lat_top_left, lon_top_left, lat_bottom_right, lon_bottom_right, img_width, img_height):
+    def pixel_to_geo(
+        x,
+        y,
+        lat_top_left,
+        lon_top_left,
+        lat_bottom_right,
+        lon_bottom_right,
+        img_width,
+        img_height,
+    ):
         lon_range = lon_bottom_right - lon_top_left
-        lat_range = lat_top_left - lat_bottom_right  # Note: latitude decreases as you go south
+        lat_range = (
+            lat_top_left - lat_bottom_right
+        )  # Note: latitude decreases as you go south
         lon = lon_top_left + (x / img_width) * lon_range
-        lat = lat_top_left - (y / img_height) * lat_range  # y increases downward in image coordinates
+        lat = (
+            lat_top_left - (y / img_height) * lat_range
+        )  # y increases downward in image coordinates
         return lon, lat
 
     # Find the maximum index for X_n and Y_n columns
-    x_columns = [col for col in df.columns if col.startswith('X_')]
+    x_columns = [col for col in df.columns if col.startswith("X_")]
     if x_columns:
-        max_index = max(int(col.split('_')[1]) for col in x_columns)
+        max_index = max(int(col.split("_")[1]) for col in x_columns)
     else:
         max_index = 0  # If no X_n columns are found
 
@@ -239,23 +294,31 @@ def inference_wells():
 
     # Iterate over each row in the dataframe
     for index, row in df.iterrows():
-        lat_top_left = row['Top Left Latitude']
-        lon_top_left = row['Top Left Longitude']
-        lat_bottom_right = row['Bottom Right Latitude']
-        lon_bottom_right = row['Bottom Right Longitude']
+        lat_top_left = row["Top Left Latitude"]
+        lon_top_left = row["Top Left Longitude"]
+        lat_bottom_right = row["Bottom Right Latitude"]
+        lon_bottom_right = row["Bottom Right Longitude"]
 
         tile_width, tile_height = 256, 256
         object_coords = []
 
         for i in range(1, max_index + 1):  # Dynamically set the range
-            x_col = f'X_{i}'
-            y_col = f'Y_{i}'
+            x_col = f"X_{i}"
+            y_col = f"Y_{i}"
             if x_col in row and y_col in row:
                 x = row[x_col]
                 y = row[y_col]
                 if pd.notna(x) and pd.notna(y):
-                    lon, lat = pixel_to_geo(x, y, lat_top_left, lon_top_left, lat_bottom_right, lon_bottom_right,
-                                            tile_width, tile_height)
+                    lon, lat = pixel_to_geo(
+                        x,
+                        y,
+                        lat_top_left,
+                        lon_top_left,
+                        lat_bottom_right,
+                        lon_bottom_right,
+                        tile_width,
+                        tile_height,
+                    )
                     if np.isfinite(lon) and np.isfinite(lat):
                         object_coords.append((lon, lat))
 
@@ -268,14 +331,14 @@ def inference_wells():
                     feature = {
                         "type": "Feature",
                         "geometry": centroid,
-                        "properties": {"Class": row['Class']}
+                        "properties": {"Class": row["Class"]},
                     }
                     geojson_features.append(feature)
                 object_coords = []
 
     # Create a GeoDataFrame
-    geometries = [feature['geometry'] for feature in geojson_features]
-    properties = [feature['properties'] for feature in geojson_features]
+    geometries = [feature["geometry"] for feature in geojson_features]
+    properties = [feature["properties"] for feature in geojson_features]
     gdf_final = gpd.GeoDataFrame(properties, geometry=geometries, crs="EPSG:4326")
 
     # Transform and save
@@ -298,7 +361,7 @@ def inference_wells():
 
     # Find all shapefile components (exclude any CSVs just in case)
     shapefile_files = glob.glob(os.path.join(output_folder, f"{description}.*"))
-    shapefile_files = [file for file in shapefile_files if not file.endswith('.csv')]
+    shapefile_files = [file for file in shapefile_files if not file.endswith(".csv")]
 
     # Add shapefile components to ZIP
     with zipfile.ZipFile(zip_filename, "w") as zipf:
@@ -308,12 +371,15 @@ def inference_wells():
 
     print(f"Created ZIP file: {zip_filename}")
 
+    fc_description = f"wells_{district}_{block}"
+    export_gdf_to_gee(gdf_final, roi, fc_description, state, district, block)
+
     # # Delete shapefile components after zipping
     # for file in shapefile_files:
     #     os.remove(file)
     #     print(f"Deleted: {file}")
 
-    print("All shapefile components have been deleted after zipping, except for the .csv file.")
+    # print("All shapefile components have been deleted after zipping, except for the .csv file.")
 
 
 def export_to_gee():
@@ -340,12 +406,14 @@ def run(roi, directory, max_tries=5, delay=1):
                 point = row["points"]
 
                 output_dir = directory + "/" + str(index)
-                download(point, output_dir, row, index, directory, blocks_df, zoom, scale)
+                download(
+                    point, output_dir, row, index, directory, blocks_df, zoom, scale
+                )
                 # mark_done(index, directory, blocks_df, "overall_status")
                 attempt = 0
             print("Download Completed")
             inference_wells()
-            export_to_gee()
+            # export_to_gee()
             complete = True
         except Exception as e:
             if attempt == max_tries:
@@ -375,7 +443,7 @@ if __name__ == "__main__":
     directory = f"data/{state}/{district}/{block}/{zoom}"
 
     os.makedirs(directory, exist_ok=True)
-    sys.stdout = Logger(directory + "/output.log")
+    sys.stdout = Logger(directory + "/wells.log")
     print("Area of the Rectangle is ", roi.geometry().area().getInfo() / 1e6)
 
     # print("Running for " + str(len(blocks_df)) + " points...")
