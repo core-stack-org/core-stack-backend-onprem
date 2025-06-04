@@ -55,8 +55,9 @@ from utils import (
     valid_gee_text,
     upload_shp_to_gee,
     is_gee_asset_exists,
+    upload_file_to_gcs,
 )
-
+from constants import GCS_SHAPEFILE_BUCKET
 from misc import get_points, download
 
 
@@ -977,6 +978,9 @@ def run(roi, directory, max_tries=5, delay=1):
     while attempt < max_tries + 1 and not complete:
         try:
             blocks_df = get_points(roi, directory, zoom, scale)
+            gcs_blob_name = f"{GCS_SHAPEFILE_BUCKET}/{district}_{block}/status.csv"
+            upload_file_to_gcs(directory + "/status.csv", gcs_blob_name)
+
             for _, row in blocks_df[blocks_df["overall_status"] == False].iterrows():
                 index = row["index"]
                 point = row["points"]
@@ -1013,7 +1017,7 @@ if __name__ == "__main__":
     district = sys.argv[2]
     block = sys.argv[3]
 
-    roi = ee.FeatureCollection(  # TODO: Ask Raman whether we should use outer boundary only?
+    roi = ee.FeatureCollection(
         get_gee_asset_path(state, district, block)
         + "filtered_mws_"
         + valid_gee_text(district.lower())
