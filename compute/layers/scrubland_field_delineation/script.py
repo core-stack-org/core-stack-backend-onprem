@@ -56,6 +56,8 @@ from utils import (
     upload_shp_to_gee,
     is_gee_asset_exists,
     upload_file_to_gcs,
+    check_task_status,
+    sync_fc_to_gee,
 )
 from constants import GCS_SHAPEFILE_BUCKET
 from misc import get_points, download
@@ -840,13 +842,28 @@ def join_boundaries(output_dir, blocks_count):
 
 
 def export_to_gee(chunk_names):
+    task_ids = []
+    asset_ids = []
     for chunk_name in chunk_names:
-        # description = f"{valid_gee_text(district)}_{valid_gee_text(block)}_boundaries"
+        print("chunk_name=", chunk_name)
         asset_id = get_gee_asset_path(state, district, block) + chunk_name
+        asset_ids.append(asset_id)
         # if is_gee_asset_exists(asset_id):
         #     return
         path = directory + "/" + chunk_name + ".shp"
-        upload_shp_to_gee(path, chunk_name, asset_id)
+        task_id = upload_shp_to_gee(path, chunk_name, asset_id)
+        task_ids.append(task_id)
+    check_task_status(task_ids, 200)
+
+    assets = []
+    for asset_id in asset_ids:
+        assets.append(ee.FeatureCollection(asset_id))
+
+    fc = ee.FeatureCollection(assets).flatten()
+
+    description = f"{valid_gee_text(district)}_{valid_gee_text(block)}_boundaries"
+    asset_id = get_gee_asset_path(state, district, block) + description
+    sync_fc_to_gee(fc, description, asset_id)
 
 
 """
@@ -854,65 +871,6 @@ def export_to_gee(chunk_names):
 Helper function for dividing an roi into blocks
 
 """
-
-#
-# def get_n_boxes(lat, lon, n, zoom, scale):
-#     diagonal_lat_lon = [
-#         (lat, lon),
-#     ]
-#     for i in range(n):
-#         new_lat_lon = lat_lon_from_pixel(lat, lon, zoom, scale)
-#         diagonal_lat_lon.append(new_lat_lon)
-#         lat, lon = new_lat_lon
-#     lats = [i[0] for i in diagonal_lat_lon]
-#     longs = [i[1] for i in diagonal_lat_lon]
-#     return list(product(lats, longs))
-
-
-# def get_points(roi, directory):
-#     points_file = Path(directory + "/status.csv")
-#     if points_file.is_file():
-#         df = pd.read_csv(directory + "/status.csv", index_col=False)
-#         df["points"] = df["points"].apply(ast.literal_eval)
-#         return df
-#     zoom = 17
-#     scale = 16
-#     bounds = roi.bounds().coordinates().get(0).getInfo()
-#     lons = sorted([i[0] for i in bounds])
-#     lats = sorted([i[1] for i in bounds])
-#     starting_point = lats[-1], lons[0]
-#     min_, max_ = (
-#         [lon_to_pixel_x(lons[0], zoom), lat_to_pixel_y(lats[0], zoom)],
-#         [lon_to_pixel_x(lons[-1], zoom), lat_to_pixel_y(lats[-1], zoom)],
-#     )
-#     iterations = math.ceil(
-#         max(abs(min_[0] - max_[0]), abs(min_[1] - max_[1])) / 256 / 16
-#     )
-#     points = get_n_boxes(starting_point[0], starting_point[1], iterations, zoom, scale)
-#     intersect_list = []
-#     print(len(points))
-#     index = 0
-#     for point in points:
-#         top_left = point
-#         bottom_right = lat_lon_from_pixel(top_left[0], top_left[1], zoom, scale)
-#         rectangle = ee.Geometry.Rectangle(
-#             [(top_left[1], top_left[0]), (bottom_right[1], bottom_right[0])]
-#         )
-#         print(top_left, bottom_right)
-#         intersects = roi.geometry().intersects(rectangle, ee.ErrorMargin(1)).getInfo()
-#         if intersects:
-#             intersect_list.append((index, (top_left, bottom_right)))
-#             index += 1
-#         print(intersects)
-#     df = pd.DataFrame(intersect_list, columns=["index", "points"])
-#     df["overall_status"] = False
-#     df["download_status_" + str(zoom)] = False
-#     df["model_status"] = False
-#     df["segmentation_status"] = False
-#     df["postprocessing_status"] = False
-#     df["plantation_status"] = False
-#     df.to_csv(directory + "/status.csv", index=False)
-#     return df
 
 
 def process_image(image_path, model, conf_thresholds, class_names):
@@ -1017,37 +975,39 @@ def run(roi, directory, max_tries=5, delay=1):
     complete = False
 
     while attempt < max_tries + 1 and not complete:
-        # try:
-        blocks_df = get_points(roi, directory, zoom, scale)
-        gcs_blob_name = f"{GCS_SHAPEFILE_BUCKET}/{district}_{block}/status.csv"
-        upload_file_to_gcs(directory + "/status.csv", gcs_blob_name)
+        try:
+            blocks_df = get_points(roi, directory, zoom, scale)
+            gcs_blob_name = f"{GCS_SHAPEFILE_BUCKET}/{district}_{block}/status.csv"
+            upload_file_to_gcs(directory + "/status.csv", gcs_blob_name)
 
-        for _, row in blocks_df[blocks_df["overall_status"] == False].iterrows():
-            index = row["index"]
-            point = row["points"]
+            for _, row in blocks_df[blocks_df["overall_status"] == False].iterrows():
+                index = row["index"]
+                point = row["points"]
 
-            # import ipdb
-            # ipdb.set_trace()
-            output_dir = directory + "/" + str(index)
-            download(point, output_dir, row, index, directory, blocks_df, zoom, scale)
-            run_model(output_dir, row, index, directory, blocks_df)
-            get_segmentation(output_dir, row, index, directory, blocks_df)
-            run_postprocessing(output_dir, row, index, directory, blocks_df)
-            run_plantation_model(output_dir, row, index, directory, blocks_df)
-            mark_done(index, directory, blocks_df, "overall_status")
-            attempt = 0
+                # import ipdb
+                # ipdb.set_trace()
+                output_dir = directory + "/" + str(index)
+                download(
+                    point, output_dir, row, index, directory, blocks_df, zoom, scale
+                )
+                run_model(output_dir, row, index, directory, blocks_df)
+                get_segmentation(output_dir, row, index, directory, blocks_df)
+                run_postprocessing(output_dir, row, index, directory, blocks_df)
+                run_plantation_model(output_dir, row, index, directory, blocks_df)
+                mark_done(index, directory, blocks_df, "overall_status")
+                attempt = 0
 
-        chunk_names = join_boundaries(directory, len(blocks_df))
-        # Export final shape files to GEE
-        export_to_gee(chunk_names)
-        complete = True
-        # except Exception as e:
-        #     if attempt == max_tries:
-        #         print(f"Run failed after {max_tries} retries. Aborting.")
-        #         return
-        #     print(f"Retrying: Attempt {attempt + 1} failed at run {e}")
-        #     attempt += 1
-        #     time.sleep(delay)
+            chunk_names = join_boundaries(directory, len(blocks_df))
+            # Export final shape files to GEE
+            export_to_gee(chunk_names)
+            complete = True
+        except Exception as e:
+            if attempt == max_tries:
+                print(f"Run failed after {max_tries} retries. Aborting.")
+                return
+            print(f"Retrying: Attempt {attempt + 1} failed at run {e}")
+            attempt += 1
+            time.sleep(delay)
 
 
 if __name__ == "__main__":
