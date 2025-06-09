@@ -56,6 +56,8 @@ from utils import (
     upload_shp_to_gee,
     is_gee_asset_exists,
     upload_file_to_gcs,
+    check_task_status,
+    sync_fc_to_gee,
 )
 from constants import GCS_SHAPEFILE_BUCKET
 from misc import get_points, download
@@ -777,35 +779,91 @@ def join_boundaries_for_domain(output_dir, blocks_count, domain):
     zip_vector(output_dir, domain)
 
 
+def join_boundaries_for_domain_chunks(output_dir, block_start, block_end, domain):
+    gdf = None
+    for i in range(block_start, block_end):
+        gdf_new = gpd.read_file(output_dir + "/" + str(i) + "/" + domain + ".shp")
+        if i == 0:
+            gdf = gdf_new
+        else:
+            gdf = pd.concat([gdf, gdf_new])
+    chunk_name = f"{domain}_{block_start}_{block_end}"
+    gdf.to_file(f"{directory}/{chunk_name}.shp")
+    zip_vector(directory, chunk_name)
+    return chunk_name
+
+
 def join_boundaries(output_dir, blocks_count):
     if os.path.exists(output_dir + "/all_done"):
         print("Everything already done")
         return
-    gdf = None
-    for ind, domain in enumerate(["all", "plantation"]):
-        join_boundaries_for_domain(
-            output_dir, blocks_count, domain
-        )  # TODO Delete these shapefiles after merging into final one?
-        gdf_new = gpd.read_file(output_dir + "/" + domain + ".shp")
-        if ind == 0:
-            gdf = gdf_new
-        else:
-            gdf = pd.concat([gdf, gdf_new])
-    description = f"{valid_gee_text(district)}_{valid_gee_text(block)}_boundaries"
-    gdf.to_file(output_dir + f"/{description}.shp")
-    zip_vector(output_dir, description)
+    chunk_names = []
+    chunk_size = 200
+    if blocks_count > chunk_size:
+        num_chunks = math.ceil(blocks_count / chunk_size)
+        for i in range(num_chunks):
+            block_end = chunk_size + (i * chunk_size)
+            block_start = block_end - chunk_size
+            block_end = blocks_count if block_end > blocks_count else block_end
+            print(block_start, block_end)
+            gdf = None
+            for ind, domain in enumerate(["all", "plantation"]):
+                chunk_name = join_boundaries_for_domain_chunks(
+                    directory, block_start, block_end, domain
+                )
+                gdf_new = gpd.read_file(output_dir + "/" + chunk_name + ".shp")
+                if ind == 0:
+                    gdf = gdf_new
+                else:
+                    gdf = pd.concat([gdf, gdf_new])
+
+            description = f"{valid_gee_text(district)}_{valid_gee_text(block)}_boundaries_{block_start}_{block_end}"
+            chunk_names.append(description)
+            gdf.to_file(directory + f"/{description}.shp")
+            zip_vector(directory, description)
+    else:
+        gdf = None
+        for ind, domain in enumerate(["all", "plantation"]):
+            join_boundaries_for_domain(output_dir, blocks_count, domain)
+            gdf_new = gpd.read_file(output_dir + "/" + domain + ".shp")
+            if ind == 0:
+                gdf = gdf_new
+            else:
+                gdf = pd.concat([gdf, gdf_new])
+        description = f"{valid_gee_text(district)}_{valid_gee_text(block)}_boundaries"
+        chunk_names.append(description)
+        gdf.to_file(output_dir + f"/{description}.shp")
+        zip_vector(output_dir, description)
 
     with open(output_dir + "/all_done", "w") as f:
         f.write("all done")
 
+    return chunk_names
 
-def export_to_gee():
+
+def export_to_gee(chunk_names):
+    task_ids = []
+    asset_ids = []
+    for chunk_name in chunk_names:
+        print("chunk_name=", chunk_name)
+        asset_id = get_gee_asset_path(state, district, block) + chunk_name
+        asset_ids.append(asset_id)
+        # if is_gee_asset_exists(asset_id):
+        #     return
+        path = directory + "/" + chunk_name + ".shp"
+        task_id = upload_shp_to_gee(path, chunk_name, asset_id)
+        task_ids.append(task_id)
+    check_task_status(task_ids, 200)
+
+    assets = []
+    for asset_id in asset_ids:
+        assets.append(ee.FeatureCollection(asset_id))
+
+    fc = ee.FeatureCollection(assets).flatten()
+
     description = f"{valid_gee_text(district)}_{valid_gee_text(block)}_boundaries"
     asset_id = get_gee_asset_path(state, district, block) + description
-    # if is_gee_asset_exists(asset_id):
-    #     return
-    path = directory + "/" + description + ".shp"
-    upload_shp_to_gee(path, description, asset_id)
+    sync_fc_to_gee(fc, description, asset_id)
 
 
 """
@@ -813,65 +871,6 @@ def export_to_gee():
 Helper function for dividing an roi into blocks
 
 """
-
-#
-# def get_n_boxes(lat, lon, n, zoom, scale):
-#     diagonal_lat_lon = [
-#         (lat, lon),
-#     ]
-#     for i in range(n):
-#         new_lat_lon = lat_lon_from_pixel(lat, lon, zoom, scale)
-#         diagonal_lat_lon.append(new_lat_lon)
-#         lat, lon = new_lat_lon
-#     lats = [i[0] for i in diagonal_lat_lon]
-#     longs = [i[1] for i in diagonal_lat_lon]
-#     return list(product(lats, longs))
-
-
-# def get_points(roi, directory):
-#     points_file = Path(directory + "/status.csv")
-#     if points_file.is_file():
-#         df = pd.read_csv(directory + "/status.csv", index_col=False)
-#         df["points"] = df["points"].apply(ast.literal_eval)
-#         return df
-#     zoom = 17
-#     scale = 16
-#     bounds = roi.bounds().coordinates().get(0).getInfo()
-#     lons = sorted([i[0] for i in bounds])
-#     lats = sorted([i[1] for i in bounds])
-#     starting_point = lats[-1], lons[0]
-#     min_, max_ = (
-#         [lon_to_pixel_x(lons[0], zoom), lat_to_pixel_y(lats[0], zoom)],
-#         [lon_to_pixel_x(lons[-1], zoom), lat_to_pixel_y(lats[-1], zoom)],
-#     )
-#     iterations = math.ceil(
-#         max(abs(min_[0] - max_[0]), abs(min_[1] - max_[1])) / 256 / 16
-#     )
-#     points = get_n_boxes(starting_point[0], starting_point[1], iterations, zoom, scale)
-#     intersect_list = []
-#     print(len(points))
-#     index = 0
-#     for point in points:
-#         top_left = point
-#         bottom_right = lat_lon_from_pixel(top_left[0], top_left[1], zoom, scale)
-#         rectangle = ee.Geometry.Rectangle(
-#             [(top_left[1], top_left[0]), (bottom_right[1], bottom_right[0])]
-#         )
-#         print(top_left, bottom_right)
-#         intersects = roi.geometry().intersects(rectangle, ee.ErrorMargin(1)).getInfo()
-#         if intersects:
-#             intersect_list.append((index, (top_left, bottom_right)))
-#             index += 1
-#         print(intersects)
-#     df = pd.DataFrame(intersect_list, columns=["index", "points"])
-#     df["overall_status"] = False
-#     df["download_status_" + str(zoom)] = False
-#     df["model_status"] = False
-#     df["segmentation_status"] = False
-#     df["postprocessing_status"] = False
-#     df["plantation_status"] = False
-#     df.to_csv(directory + "/status.csv", index=False)
-#     return df
 
 
 def process_image(image_path, model, conf_thresholds, class_names):
@@ -998,9 +997,9 @@ def run(roi, directory, max_tries=5, delay=1):
                 mark_done(index, directory, blocks_df, "overall_status")
                 attempt = 0
 
-            join_boundaries(directory, len(blocks_df))
+            chunk_names = join_boundaries(directory, len(blocks_df))
             # Export final shape files to GEE
-            export_to_gee()
+            export_to_gee(chunk_names)
             complete = True
         except Exception as e:
             if attempt == max_tries:
