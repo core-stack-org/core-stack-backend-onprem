@@ -2,7 +2,7 @@ import os
 import re
 from core_stack_backend_onprem.celery import app
 import subprocess
-from core_stack_backend_onprem.settings import HTTP_PROXY
+from core_stack_backend_onprem.settings import HTTP_PROXY, DATA_PATH
 
 
 def valid_gee_text(description):
@@ -25,6 +25,8 @@ def scrubland_field_delineation(self, state, district, block):
         "--init",
         "-v",
         f"{pwd}/compute/layers:/app",
+        "-v",
+        f"{DATA_PATH}:/app/data",
         "-e",
         f"http_proxy={HTTP_PROXY}",
         "-e",
@@ -74,6 +76,8 @@ def compute_ponds_detection(self, state, district, block):
         "--init",
         "-v",
         f"{pwd}/compute/layers:/app",
+        "-v",
+        f"{DATA_PATH}:/app/data",
         "-e",
         f"http_proxy={HTTP_PROXY}",
         "-e",
@@ -122,6 +126,8 @@ def compute_wells_detection(self, state, district, block):
         "--init",
         "-v",
         f"{pwd}/compute/layers:/app",
+        "-v",
+        f"{DATA_PATH}:/app/data",
         "-e",
         f"http_proxy={HTTP_PROXY}",
         "-e",
