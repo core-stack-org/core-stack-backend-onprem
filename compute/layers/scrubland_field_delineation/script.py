@@ -854,16 +854,17 @@ def export_to_gee(chunk_names):
         task_id = upload_shp_to_gee(path, chunk_name, asset_id)
         task_ids.append(task_id)
     check_task_status(task_ids, 200)
+    
+    if len(asset_ids) > 1:
+        assets = []
+        for asset_id in asset_ids:
+            assets.append(ee.FeatureCollection(asset_id))
 
-    assets = []
-    for asset_id in asset_ids:
-        assets.append(ee.FeatureCollection(asset_id))
-
-    fc = ee.FeatureCollection(assets).flatten()
-
-    description = f"{valid_gee_text(district)}_{valid_gee_text(block)}_boundaries"
-    asset_id = get_gee_asset_path(state, district, block) + description
-    sync_fc_to_gee(fc, description, asset_id)
+        fc = ee.FeatureCollection(assets).flatten()
+    
+        description = f"{valid_gee_text(district)}_{valid_gee_text(block)}_boundaries"
+        asset_id = get_gee_asset_path(state, district, block) + description
+        sync_fc_to_gee(fc, description, asset_id)
 
 
 """
@@ -942,7 +943,7 @@ def run_plantation_model(output_dir, row, index, directory, blocks_df):
         return
     model_path = "scrubland_field_delineation/plantation_model.pt"
     conf_thresholds = {
-        "plantations": 0.3,
+        "plantations": 0.5,
     }
     class_names = [
         "plantations",
