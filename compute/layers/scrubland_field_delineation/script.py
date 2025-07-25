@@ -817,7 +817,7 @@ def join_boundaries(output_dir, blocks_count):
                 else:
                     gdf = pd.concat([gdf, gdf_new])
 
-            description = f"{valid_gee_text(district)}_{valid_gee_text(block)}_boundaries_{block_start}_{block_end}"
+            description = f"lulc_v4_{valid_gee_text(district)}_{valid_gee_text(block)}_boundaries_{block_start}_{block_end}"
             chunk_names.append(description)
             gdf.to_file(directory + f"/{description}.shp")
             zip_vector(directory, description)
@@ -830,7 +830,9 @@ def join_boundaries(output_dir, blocks_count):
                 gdf = gdf_new
             else:
                 gdf = pd.concat([gdf, gdf_new])
-        description = f"{valid_gee_text(district)}_{valid_gee_text(block)}_boundaries"
+        description = (
+            f"lulc_v4_{valid_gee_text(district)}_{valid_gee_text(block)}_boundaries"
+        )
         chunk_names.append(description)
         gdf.to_file(output_dir + f"/{description}.shp")
         zip_vector(output_dir, description)
@@ -854,15 +856,17 @@ def export_to_gee(chunk_names):
         task_id = upload_shp_to_gee(path, chunk_name, asset_id)
         task_ids.append(task_id)
     check_task_status(task_ids, 200)
-    
+
     if len(asset_ids) > 1:
         assets = []
         for asset_id in asset_ids:
             assets.append(ee.FeatureCollection(asset_id))
 
         fc = ee.FeatureCollection(assets).flatten()
-    
-        description = f"{valid_gee_text(district)}_{valid_gee_text(block)}_boundaries"
+
+        description = (
+            f"lulc_v4_{valid_gee_text(district)}_{valid_gee_text(block)}_boundaries"
+        )
         asset_id = get_gee_asset_path(state, district, block) + description
         sync_fc_to_gee(fc, description, asset_id)
 
@@ -987,7 +991,7 @@ def run(roi, directory, max_tries=5, delay=1):
 
                 # import ipdb
                 # ipdb.set_trace()
-                output_dir = directory + "/" + str(index)
+                output_dir = f"{directory}/{zoom}/{str(index)}"
                 download(
                     point, output_dir, row, index, directory, blocks_df, zoom, scale
                 )
@@ -1028,7 +1032,7 @@ if __name__ == "__main__":
 
     zoom = 17
     scale = 16
-    directory = f"data/{state}/{district}/{block}/{zoom}"
+    directory = f"data/{state}/{district}/{block}"
 
     os.makedirs(directory, exist_ok=True)
     sys.stdout = Logger(directory + "/output.log")

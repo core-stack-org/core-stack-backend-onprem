@@ -45,9 +45,9 @@ class Logger:
 def inference_wells():
     # load trained model
     model_path = "ponds_and_wells/Models/Wells_best.pt"
-
+    zoom_path = f"{directory}/{zoom}"
     # CSV file name where masks of detected object will be saved
-    csv_file = f"{directory}/TRY_Wells.csv"
+    csv_file = f"{zoom_path}/TRY_Wells.csv"
 
     # Define class-specific confidence thresholds
     conf_thresholds = {
@@ -139,8 +139,8 @@ def inference_wells():
     max_vertices = 0
 
     # Traverse subfolders like TRY/0, TRY/1, ...
-    for subfolder in sorted(os.listdir(directory)):
-        subfolder_path = os.path.join(directory, subfolder)
+    for subfolder in sorted(os.listdir(zoom_path)):
+        subfolder_path = os.path.join(zoom_path, subfolder)
 
         chunk_dir = os.path.join(subfolder_path, "chunks")
         tile_map_path = os.path.join(subfolder_path, "tile_mapping.csv")
@@ -347,7 +347,7 @@ def inference_wells():
     output_shapefile = f"{csv_basename}.shp"
 
     # Ensure the output folder exists
-    output_folder = directory + "/wells_output"
+    output_folder = zoom_path + "/wells_output"
     os.makedirs(output_folder, exist_ok=True)
 
     description = f"wells_{valid_gee_text(district)}_{valid_gee_text(block)}"
@@ -387,7 +387,7 @@ def export_to_gee():
     asset_id = get_gee_asset_path(state, district, block) + description
     # if is_gee_asset_exists(asset_id):
     #     return
-    path = directory + "/wells_output/" + description + ".shp"
+    path = f"{directory}/{zoom}/wells_output/{description}.shp"
     upload_shp_to_gee(path, description, asset_id)
 
 
@@ -405,7 +405,7 @@ def run(roi, directory, max_tries=5, delay=1):
                 index = row["index"]
                 point = row["points"]
 
-                output_dir = directory + "/" + str(index)
+                output_dir = f"{directory}/{zoom}/{str(index)}"
                 download(
                     point, output_dir, row, index, directory, blocks_df, zoom, scale
                 )
@@ -440,7 +440,7 @@ if __name__ == "__main__":
     ).union()
     zoom = 18
     scale = 16
-    directory = f"data/{state}/{district}/{block}/{zoom}"
+    directory = f"data/{state}/{district}/{block}"
 
     os.makedirs(directory, exist_ok=True)
     sys.stdout = Logger(directory + "/wells.log")

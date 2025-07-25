@@ -52,10 +52,10 @@ def inference_ponds():
     conf_thresholds = {"Dry": 0.75, "Wet": 0.6}
 
     class_names = ["Dry", "Wet"]
-
+    zoom_path = f"{directory}/{zoom}"
     class_abbreviations = {"Dry": "D", "Wet": "W"}
     description = f"{valid_gee_text(district)}_{valid_gee_text(block)}"
-    csv_file = os.path.join(directory, description + ".csv")
+    csv_file = os.path.join(zoom_path, description + ".csv")
 
     # Load the model
     my_new_model = YOLO(model_path)
@@ -173,8 +173,8 @@ def inference_ponds():
     max_vertices = 0
 
     # Traverse subfolders like TRY/0, TRY/1, ...
-    for subfolder in sorted(os.listdir(directory)):
-        subfolder_path = os.path.join(directory, subfolder)
+    for subfolder in sorted(os.listdir(zoom_path)):
+        subfolder_path = os.path.join(zoom_path, subfolder)
 
         chunk_dir = os.path.join(subfolder_path, "chunks")
         tile_map_path = os.path.join(subfolder_path, "tile_mapping.csv")
@@ -419,7 +419,7 @@ def inference_ponds():
     ########## SAVE AS SHAPEFILE
 
     # Ensure the output folder exists
-    output_folder = directory + "/ponds_output"
+    output_folder = zoom_path + "/ponds_output"
     os.makedirs(output_folder, exist_ok=True)
     description = f"ponds_{valid_gee_text(district)}_{valid_gee_text(block)}"
     # Save the final shapefile in the 'Shapefile_Output' folder
@@ -476,7 +476,7 @@ def run(roi, directory, max_tries=5, delay=1):
                 index = row["index"]
                 point = row["points"]
 
-                output_dir = directory + "/" + str(index)
+                output_dir = f"{directory}/{zoom}/{str(index)}"
                 download(
                     point, output_dir, row, index, directory, blocks_df, zoom, scale
                 )
@@ -510,7 +510,7 @@ if __name__ == "__main__":
     ).union()
     zoom = 17
     scale = 16
-    directory = f"data/{state}/{district}/{block}/{zoom}"
+    directory = f"data/{state}/{district}/{block}"
 
     os.makedirs(directory, exist_ok=True)
     sys.stdout = Logger(directory + "/ponds.log")
