@@ -18,11 +18,17 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import path
 
-from .api import generate_farm_boundary, generate_wells_layer, generate_ponds_layer
+from .api import (
+    generate_farm_boundary,
+    generate_wells_layer,
+    generate_ponds_layer,
+    generate_village_farm_boundary,
+)
 
 urlpatterns = [
     path("admin/", admin.site.urls),
     path("compute/farm-boundary/", generate_farm_boundary),
+    path("compute/village-farm-boundary/", generate_village_farm_boundary),
     path("compute/ponds/", generate_ponds_layer),
     path("compute/wells/", generate_wells_layer),
 ]

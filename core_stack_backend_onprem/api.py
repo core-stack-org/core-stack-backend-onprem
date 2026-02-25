@@ -7,6 +7,7 @@ from compute.compute_layers import (
     scrubland_field_delineation,
     compute_wells_detection,
     compute_ponds_detection,
+    scrubland_field_delineation_villages,
 )
 
 
@@ -25,6 +26,24 @@ def generate_farm_boundary(request):
         )
     except Exception as e:
         print("Exception in generate_farm_boundary api :: ", e)
+        return Response({"Exception": e}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(["POST"])
+def generate_village_farm_boundary(request):
+    print("Inside generate_village_farm_boundary API.")
+    try:
+        roi_path = request.data.get("roi_path")
+        asset_suffix = request.data.get("asset_suffix")
+        project = request.data.get("project")
+        scrubland_field_delineation_villages.apply_async(
+            args=[roi_path, asset_suffix, project], queue="core_stack"
+        )
+        return Response(
+            {"Success": "Successfully initiated"}, status=status.HTTP_200_OK
+        )
+    except Exception as e:
+        print("Exception in generate_village_farm_boundary api :: ", e)
         return Response({"Exception": e}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 

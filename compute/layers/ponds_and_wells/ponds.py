@@ -513,7 +513,7 @@ if __name__ == "__main__":
     directory = f"data/{state}/{district}/{block}"
 
     os.makedirs(directory, exist_ok=True)
-    sys.stdout = Logger(directory + "/ponds.log")
+    sys.stdout = Logger(f"{directory}/{zoom}/ponds.log")
     print("Area of the Rectangle is ", roi.geometry().area().getInfo() / 1e6)
 
     # print("Running for " + str(len(blocks_df)) + " points...")

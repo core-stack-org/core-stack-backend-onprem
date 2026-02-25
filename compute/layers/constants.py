@@ -5,6 +5,7 @@ GCS_BUCKET_NAME = "core_stack"
 GCS_SHAPEFILE_BUCKET = "shapefiles"
 
 GEE_ASSET_PATH = "projects/ee-corestackdev/assets/apps/mws/"
+GEE_VILLAGE_ASSET_PATH = "projects/ee-corestackdev/assets/apps/plot_boundaries/"
 GEE_HELPER_PATH = "projects/ee-corestack-helper/assets/apps/mws/"
 
 PONDS_WELLS_DATA_PATH = "/home/core-stack/Code/GitClones/core-stack-backend-onprem/compute/layers/data/ponds_and_wells"

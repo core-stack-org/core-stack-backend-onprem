@@ -52,6 +52,7 @@ from itertools import combinations
 from utils import (
     ee_initialize,
     get_gee_asset_path,
+    get_gee_dir_path,
     valid_gee_text,
     upload_shp_to_gee,
     is_gee_asset_exists,
@@ -59,7 +60,7 @@ from utils import (
     check_task_status,
     sync_fc_to_gee,
 )
-from constants import GCS_SHAPEFILE_BUCKET
+from constants import GCS_SHAPEFILE_BUCKET, GEE_VILLAGE_ASSET_PATH, GEE_ASSET_PATH
 from misc import get_points, download
 
 
@@ -769,8 +770,12 @@ def zip_vector(output_dir, vector_name):
 
 def join_boundaries_for_domain(output_dir, blocks_count, domain):
     gdf = None
+    print("join_boundaries_for_domain")
     for i in range(0, blocks_count):
-        gdf_new = gpd.read_file(output_dir + "/" + str(i) + "/" + domain + ".shp")
+        f_path = output_dir + "/" + str(i) + "/" + domain + ".shp"
+        print(f"{f_path=}")
+        gdf_new = gpd.read_file(f_path)
+        print(gdf_new)
         if i == 0:
             gdf = gdf_new
         else:
@@ -796,7 +801,8 @@ def join_boundaries_for_domain_chunks(output_dir, block_start, block_end, domain
 def join_boundaries(output_dir, blocks_count):
     if os.path.exists(output_dir + "/all_done"):
         print("Everything already done")
-        return
+
+    print("joining boundaries")
     chunk_names = []
     chunk_size = 200
     if blocks_count > chunk_size:
@@ -817,7 +823,7 @@ def join_boundaries(output_dir, blocks_count):
                 else:
                     gdf = pd.concat([gdf, gdf_new])
 
-            description = f"lulc_v4_{valid_gee_text(district)}_{valid_gee_text(block)}_boundaries_{block_start}_{block_end}"
+            description = f"lulc_v4_{asset_suffix}_boundaries_{block_start}_{block_end}"
             chunk_names.append(description)
             gdf.to_file(directory + f"/{description}.shp")
             zip_vector(directory, description)
@@ -830,9 +836,7 @@ def join_boundaries(output_dir, blocks_count):
                 gdf = gdf_new
             else:
                 gdf = pd.concat([gdf, gdf_new])
-        description = (
-            f"lulc_v4_{valid_gee_text(district)}_{valid_gee_text(block)}_boundaries"
-        )
+        description = f"lulc_v4_{asset_suffix}_boundaries"
         chunk_names.append(description)
         gdf.to_file(output_dir + f"/{description}.shp")
         zip_vector(output_dir, description)
@@ -846,9 +850,11 @@ def join_boundaries(output_dir, blocks_count):
 def export_to_gee(chunk_names):
     task_ids = []
     asset_ids = []
+    print("export_to_gee======")
     for chunk_name in chunk_names:
         print("chunk_name=", chunk_name)
-        asset_id = get_gee_asset_path(state, district, block) + chunk_name
+        # asset_id = get_gee_asset_path(state, district, block) + chunk_name
+        asset_id = get_gee_dir_path(asset_folder_list, ASSET_PATH) + chunk_name
         asset_ids.append(asset_id)
         # if is_gee_asset_exists(asset_id):
         #     return
@@ -864,10 +870,9 @@ def export_to_gee(chunk_names):
 
         fc = ee.FeatureCollection(assets).flatten()
 
-        description = (
-            f"lulc_v4_{valid_gee_text(district)}_{valid_gee_text(block)}_boundaries"
-        )
-        asset_id = get_gee_asset_path(state, district, block) + description
+        description = f"lulc_v4_{asset_suffix}_boundaries"
+        # asset_id = get_gee_asset_path(state, district, block) + description
+        asset_id = get_gee_dir_path(asset_folder_list, ASSET_PATH) + description
         sync_fc_to_gee(fc, description, asset_id)
 
 
@@ -982,7 +987,7 @@ def run(roi, directory, max_tries=5, delay=1):
     while attempt < max_tries + 1 and not complete:
         try:
             blocks_df = get_points(roi, directory, zoom, scale)
-            gcs_blob_name = f"{GCS_SHAPEFILE_BUCKET}/{district}_{block}/status.csv"
+            gcs_blob_name = f"{GCS_SHAPEFILE_BUCKET}/{asset_suffix}/status.csv"
             upload_file_to_gcs(directory + "/status.csv", gcs_blob_name)
 
             for _, row in blocks_df[blocks_df["overall_status"] == False].iterrows():
@@ -1017,25 +1022,45 @@ def run(roi, directory, max_tries=5, delay=1):
 
 if __name__ == "__main__":
     ee_initialize()
-    state = sys.argv[1]
-    district = sys.argv[2]
-    block = sys.argv[3]
+    is_roi = sys.argv[1]
+    print("AAAAAAAAAAAAAA", is_roi)
+    print(type(is_roi))
+    print(sys.argv[2])
+    print(sys.argv[3])
 
-    roi = ee.FeatureCollection(
-        get_gee_asset_path(state, district, block)
-        + "filtered_mws_"
-        + valid_gee_text(district.lower())
-        + "_"
-        + valid_gee_text(block.lower())
-        + "_uid"
-    ).union()
+    if is_roi == "True":
+        print("11111111")
+        roi_path = sys.argv[2]
+        asset_suffix = valid_gee_text(sys.argv[3])
+        project = sys.argv[4]
+        asset_folder_list = ["apps", "plot_boundaries", project]
+        ASSET_PATH = GEE_VILLAGE_ASSET_PATH
+        roi = ee.FeatureCollection(roi_path)
+        directory = f"data/{asset_suffix}"
+    else:
+        print("222222222222")
+        state = sys.argv[2]
+        district = sys.argv[3]
+        block = sys.argv[4]
+        asset_folder_list = [state, district, block]
+        asset_suffix = (
+            f"{valid_gee_text(district.lower())}_{valid_gee_text(block.lower())}"
+        )
+        directory = f"data/{state}/{district}/{block}"
+        ASSET_PATH = GEE_ASSET_PATH
+        print(get_gee_dir_path(asset_folder_list))
+        roi = ee.FeatureCollection(
+            # get_gee_asset_path(state, district, block)
+            get_gee_dir_path(asset_folder_list)
+            + f"filtered_mws_{asset_suffix}_uid"
+        ).union()
 
     zoom = 17
     scale = 16
-    directory = f"data/{state}/{district}/{block}"
 
     os.makedirs(directory, exist_ok=True)
-    sys.stdout = Logger(directory + "/output.log")
+    os.makedirs(f"{directory}/{zoom}", exist_ok=True)
+    sys.stdout = Logger(f"{directory}/{zoom}/output.log")
     print("Area of the Rectangle is ", roi.geometry().area().getInfo() / 1e6)
 
     # print("Running for " + str(len(blocks_df)) + " points...")

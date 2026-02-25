@@ -87,6 +87,13 @@ def create_gee_directory(state, district, block, gee_project_path=GEE_ASSET_PATH
     create_gee_folder(folder_path, gee_project_path)
 
 
+def get_gee_dir_path(folder_list, asset_path=GEE_ASSET_PATH):
+    gee_path = asset_path
+    for folder in folder_list:
+        gee_path += valid_gee_text(folder.lower()) + "/"
+    return gee_path
+
+
 def get_gee_asset_path(state, district=None, block=None, asset_path=GEE_ASSET_PATH):
     gee_path = asset_path + valid_gee_text(state.lower()) + "/"
     if district:

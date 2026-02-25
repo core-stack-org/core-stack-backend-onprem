@@ -39,9 +39,60 @@ def scrubland_field_delineation(self, state, district, block):
         (
             f"cd /app && "
             f"PYTHONUNBUFFERED=1 PYTHONPATH=/app conda run -n myenv python scrubland_field_delineation/script.py "
-            f"{valid_gee_text(state)} {valid_gee_text(district)} {valid_gee_text(block)}"
+            f"{False} {valid_gee_text(state)} {valid_gee_text(district)} {valid_gee_text(block)}"
         ),
     ]
+    try:
+        # Run the command and capture output
+        # response = os.system(docker_cmd)
+        process = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            bufsize=1,
+            universal_newlines=True,
+        )
+        # print(response)
+
+        for line in process.stdout:
+            print(f"[Docker log] {line.strip()}")
+    except Exception as e:
+        print(f"Error running Docker container: {e}")
+
+
+@app.task(bind=True)
+def scrubland_field_delineation_villages(self, roi_path, asset_suffix, project):
+    print("In scrubland_field_delineation")
+    pwd = os.getcwd()
+
+    cmd = [
+        "sudo",
+        "docker",
+        "run",
+        "--shm-size=60gb",
+        "--gpus",
+        "all",
+        "--init",
+        "-v",
+        f"{pwd}/compute/layers:/app",
+        "-v",
+        f"{DATA_PATH}:/app/data",
+        "-e",
+        f"http_proxy={HTTP_PROXY}",
+        "-e",
+        f"https_proxy={HTTP_PROXY}",
+        "-e",
+        "no_proxy=localhost,127.0.0.1,::1",
+        "farms",
+        "bash",
+        "-c",
+        (
+            f"cd /app && "
+            f"PYTHONUNBUFFERED=1 PYTHONPATH=/app conda run -n myenv python scrubland_field_delineation/script.py "
+            f"{True} {roi_path} {asset_suffix} {project}"
+        ),
+    ]
+
     try:
         # Run the command and capture output
         # response = os.system(docker_cmd)
