@@ -858,7 +858,7 @@ def export_to_gee(chunk_names):
         asset_ids.append(asset_id)
         # if is_gee_asset_exists(asset_id):
         #     return
-        path = directory + "/" + chunk_name + ".shp"
+        path = f"{directory}/{str(zoom)}/{chunk_name}.shp"
         task_id = upload_shp_to_gee(path, chunk_name, asset_id)
         task_ids.append(task_id)
     check_task_status(task_ids, 200)
@@ -1007,7 +1007,7 @@ def run(roi, directory, max_tries=5, delay=1):
                 mark_done(index, directory, blocks_df, "overall_status")
                 attempt = 0
 
-            chunk_names = join_boundaries(directory, len(blocks_df))
+            chunk_names = join_boundaries(f"{directory}/{zoom}", len(blocks_df))
             # Export final shape files to GEE
             export_to_gee(chunk_names)
             complete = True
@@ -1023,22 +1023,22 @@ def run(roi, directory, max_tries=5, delay=1):
 if __name__ == "__main__":
     ee_initialize()
     is_roi = sys.argv[1]
-    print("AAAAAAAAAAAAAA", is_roi)
+    print("Inside script", is_roi)
     print(type(is_roi))
     print(sys.argv[2])
     print(sys.argv[3])
 
     if is_roi == "True":
-        print("11111111")
+        print("Computing for roi")
         roi_path = sys.argv[2]
         asset_suffix = valid_gee_text(sys.argv[3])
         project = sys.argv[4]
-        asset_folder_list = ["apps", "plot_boundaries", project]
+        asset_folder_list = [project]
         ASSET_PATH = GEE_VILLAGE_ASSET_PATH
         roi = ee.FeatureCollection(roi_path)
         directory = f"data/{asset_suffix}"
     else:
-        print("222222222222")
+        print("Computing for state district block")
         state = sys.argv[2]
         district = sys.argv[3]
         block = sys.argv[4]
@@ -1060,6 +1060,7 @@ if __name__ == "__main__":
 
     os.makedirs(directory, exist_ok=True)
     os.makedirs(f"{directory}/{zoom}", exist_ok=True)
+
     sys.stdout = Logger(f"{directory}/{zoom}/output.log")
     print("Area of the Rectangle is ", roi.geometry().area().getInfo() / 1e6)
 
