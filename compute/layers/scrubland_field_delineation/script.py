@@ -59,10 +59,11 @@ from utils import (
     upload_file_to_gcs,
     check_task_status,
     sync_fc_to_gee,
+    make_asset_public,
 )
 from constants import GCS_SHAPEFILE_BUCKET, GEE_VILLAGE_ASSET_PATH, GEE_ASSET_PATH
 from misc import get_points, download
-
+from get_farm_boundaries import get_farm_boundaries
 
 original_image, min_j, min_i, max_j, max_i, instances_predicted = (0, 0, 0, 0, 0, 0)
 mapping = {"farm": 1, "plantation": 2, "scrubland": 3, "rest": 0}
@@ -823,7 +824,7 @@ def join_boundaries(output_dir, blocks_count):
                 else:
                     gdf = pd.concat([gdf, gdf_new])
 
-            description = f"lulc_v4_{asset_suffix}_boundaries_{block_start}_{block_end}"
+            description = f"{asset_suffix}_boundaries_{block_start}_{block_end}"
             chunk_names.append(description)
             gdf.to_file(directory + f"/{description}.shp")
             zip_vector(directory, description)
@@ -836,7 +837,7 @@ def join_boundaries(output_dir, blocks_count):
                 gdf = gdf_new
             else:
                 gdf = pd.concat([gdf, gdf_new])
-        description = f"lulc_v4_{asset_suffix}_boundaries"
+        description = f"{asset_suffix}_boundaries"
         chunk_names.append(description)
         gdf.to_file(output_dir + f"/{description}.shp")
         zip_vector(output_dir, description)
@@ -856,12 +857,15 @@ def export_to_gee(chunk_names):
         # asset_id = get_gee_asset_path(state, district, block) + chunk_name
         asset_id = get_gee_dir_path(asset_folder_list, ASSET_PATH) + chunk_name
         asset_ids.append(asset_id)
-        # if is_gee_asset_exists(asset_id):
-        #     return
+        # if not is_gee_asset_exists(asset_id):
         path = f"{directory}/{str(zoom)}/{chunk_name}.shp"
         task_id = upload_shp_to_gee(path, chunk_name, asset_id)
         task_ids.append(task_id)
+
     check_task_status(task_ids, 200)
+
+    for asset_id in asset_ids:
+        make_asset_public(asset_id)
 
     if len(asset_ids) > 1:
         assets = []
@@ -870,10 +874,15 @@ def export_to_gee(chunk_names):
 
         fc = ee.FeatureCollection(assets).flatten()
 
-        description = f"lulc_v4_{asset_suffix}_boundaries"
+        description = f"{asset_suffix}_boundaries"
         # asset_id = get_gee_asset_path(state, district, block) + description
         asset_id = get_gee_dir_path(asset_folder_list, ASSET_PATH) + description
-        sync_fc_to_gee(fc, description, asset_id)
+        task_id = sync_fc_to_gee(fc, description, asset_id)
+        check_task_status([task_id], 200)
+        make_asset_public(asset_id)
+        get_farm_boundaries(asset_id)
+    else:
+        get_farm_boundaries(asset_ids[0])
 
 
 """

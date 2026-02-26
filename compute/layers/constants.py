@@ -10,3 +10,5 @@ GEE_HELPER_PATH = "projects/ee-corestack-helper/assets/apps/mws/"
 
 PONDS_WELLS_DATA_PATH = "/home/core-stack/Code/GitClones/core-stack-backend-onprem/compute/layers/data/ponds_and_wells"
 PONDS_WELLS_MODEL_PATH = "/home/core-stack/Code/GitClones/core-stack-backend-onprem/compute/layers/ponds_and_wells/Models"
+
+LULC_V4 = "projects/raman-461708/assets/LULC_v4_PanIndia_2023-07-01_2024-06-30"
