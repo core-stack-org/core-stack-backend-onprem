@@ -15,8 +15,15 @@ def get_farm_boundaries(asset_id):
         ee.Filter.neq("class", "plantation")
     )
 
+    def get_feature_area(feature):
+        area_in_sqm = feature.area()
+        # area_in_hec = ee.Number(area_in_sqm).divide(ee.Number(10000))
+        return feature.set("area_in_sqm", area_in_sqm)
+
     def get_distribution(feature):
         feature = ee.Feature(feature)
+        feature = get_feature_area(feature)
+
         hist = lulc.reduceRegion(
             reducer=ee.Reducer.frequencyHistogram(),
             geometry=feature.geometry(),
@@ -69,6 +76,13 @@ def get_farm_boundaries(asset_id):
     boundaries = boundaries.map(get_distribution)
     boundaries = boundaries.filter(ee.Filter.gt("farm_pct", 50))
     boundaries = boundaries.map(simplify_boundary)
+
+    boundaries = boundaries.map(
+        lambda f: f.set("geom_type", f.geometry().type())
+    ).filter(ee.Filter.eq("geom_type", "Polygon"))
+
+    boundaries = boundaries.filter(ee.Filter.gt("area_in_sqm", 50))
+
     description = asset_id.split("/")[-1]
     task_id = sync_fc_to_gee(
         boundaries, f"{description}_farm_pct", f"{asset_id}_farm_pct"
