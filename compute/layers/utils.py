@@ -380,3 +380,22 @@ def extract_task_id(command_output):
             return match.group(1)
 
     return None
+
+
+def download_csv_from_gcs(bucket_name, blob_name, destination_file_name):
+    try:
+        bucket = gcs_config()
+        blob = bucket.blob(bucket_name + "/" + blob_name)
+        if blob.exists():
+            blob.download_to_filename(destination_file_name)
+            print(
+                f"Downloaded {blob_name} from bucket {bucket_name} to {destination_file_name}"
+            )
+        else:
+            print(
+                f"Blob '{blob_name}' does not exist in bucket '{bucket_name}'. No file downloaded."
+            )
+    except Exception as e:
+        print(
+            f"Exception in downloading csv {blob_name} from GCS bucket {bucket_name}", e
+        )

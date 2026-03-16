@@ -211,3 +211,157 @@ def compute_wells_detection(self, state, district, block):
             print(f"[Docker log] {line.strip()}")
     except Exception as e:
         print(f"Error running Docker container: {e}")
+
+
+@app.task(bind=True)
+def lulc_v4_local_compute(self, aez):
+    print("In lulc_v4_local_compute")
+    pwd = os.getcwd()
+
+    cmd = [
+        "sudo",
+        "docker",
+        "run",
+        "--shm-size=60gb",
+        "--gpus",
+        "all",
+        "--init",
+        "-v",
+        f"{pwd}/compute/layers:/app",
+        "-v",
+        f"{DATA_PATH}:/app/data",
+        "-e",
+        f"http_proxy={HTTP_PROXY}",
+        "-e",
+        f"https_proxy={HTTP_PROXY}",
+        "-e",
+        "no_proxy=localhost,127.0.0.1,::1",
+        "farms",
+        "bash",
+        "-c",
+        (
+            f"cd /app && "
+            f"PYTHONUNBUFFERED=1 PYTHONPATH=/app conda run -n myenv python scrubland_field_delineation/AEZ_level/1_local_compute.py "
+            f"aez --aezs 3 --base-dir 'data/data_AEZ'"
+        ),
+    ]
+
+    try:
+        # Run the command and capture output
+        # response = os.system(docker_cmd)
+        process = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            bufsize=1,
+            universal_newlines=True,
+        )
+        # print(response)
+
+        for line in process.stdout:
+            print(f"[Docker log] {line.strip()}")
+    except Exception as e:
+        print(f"Error running Docker container: {e}")
+
+
+@app.task(bind=True)
+def lulc_v4_sampling_locally_workers(self):
+    print("In lulc_v4_sampling_locally_workers")
+    pwd = os.getcwd()
+
+    cmd = [
+        "sudo",
+        "docker",
+        "run",
+        "--shm-size=60gb",
+        "--gpus",
+        "all",
+        "--init",
+        "-v",
+        f"{pwd}/compute/layers:/app",
+        "-v",
+        f"{DATA_PATH}:/app/data",
+        "-e",
+        f"http_proxy={HTTP_PROXY}",
+        "-e",
+        f"https_proxy={HTTP_PROXY}",
+        "-e",
+        "no_proxy=localhost,127.0.0.1,::1",
+        "farms",
+        "bash",
+        "-c",
+        # (
+        #     f"cd /app && "
+        #     f"PYTHONUNBUFFERED=1 PYTHONPATH=/app conda run -n myenv python scrubland_field_delineation/AEZ_level/2_sampling_locally_workers.py "
+        #     f"--aez-root 'data/data_AEZ' --boundary-root 'data/data_AEZ' all"
+        # ),
+        (
+            f"cd /app && "
+            f"PYTHONUNBUFFERED=1 PYTHONPATH=/app conda run -n myenv python scrubland_field_delineation/AEZ_level/2_sampling_locally_workers.py "
+            f"--aez-root 'data/data_AEZ' --boundary-root 'data/data_AEZ' single --aez 3"
+        ),
+    ]
+
+    try:
+        # Run the command and capture output
+        process = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            bufsize=1,
+            universal_newlines=True,
+        )
+
+        for line in process.stdout:
+            print(f"[Docker log] {line.strip()}")
+    except Exception as e:
+        print(f"Error running Docker container: {e}")
+
+
+@app.task(bind=True)
+def lulc_v4_store_embeddings_run_lulc(self):
+    print("In lulc_v4_store_embeddings_run_lulc")
+    pwd = os.getcwd()
+
+    cmd = [
+        "sudo",
+        "docker",
+        "run",
+        "--shm-size=60gb",
+        "--gpus",
+        "all",
+        "--init",
+        "-v",
+        f"{pwd}/compute/layers:/app",
+        "-v",
+        f"{DATA_PATH}:/app/data",
+        "-e",
+        f"http_proxy={HTTP_PROXY}",
+        "-e",
+        f"https_proxy={HTTP_PROXY}",
+        "-e",
+        "no_proxy=localhost,127.0.0.1,::1",
+        "farms",
+        "bash",
+        "-c",
+        (
+            f"cd /app && "
+            f"PYTHONUNBUFFERED=1 PYTHONPATH=/app conda run -n myenv python scrubland_field_delineation/AEZ_level/3_store_embeddings_run_lulcv4.py "
+            f"aez --aezs 3"
+        ),
+    ]
+
+    try:
+        # Run the command and capture output
+        process = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            bufsize=1,
+            universal_newlines=True,
+        )
+
+        for line in process.stdout:
+            print(f"[Docker log] {line.strip()}")
+    except Exception as e:
+        print(f"Error running Docker container: {e}")
